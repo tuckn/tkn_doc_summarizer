@@ -1,0 +1,21 @@
+# Copy this file to ~/.tkn/doc_summarizer/config.yaml for user-global settings,
+# or to .tkn/config.yaml for a current-working-directory override.
+
+# URL inputs are resolved to Markdown files by recursively searching these roots.
+# File-path inputs do not require source_roots.
+source_roots:
+  - C:\Users\ExampleUser\Documents\Obsidian\WebClips
+
+output_root: ~/.tkn/doc_summarizer/data/summaries
+reports_root: ~/.tkn/doc_summarizer/state/reports
+
+provider: codex
+model: null
+codex_executable: codex
+codex_timeout_seconds: 1800
+max_input_bytes: 2000000
+
+# null uses the packaged prompt. A filename is resolved below
+# ~/.tkn/doc_summarizer/prompts/. Use an absolute path for other locations.
+# Create a custom prompt with: doc-summarizer prompt init
+summary_prompt: null
