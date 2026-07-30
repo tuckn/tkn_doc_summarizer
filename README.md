@@ -189,10 +189,17 @@ Generated notes follow the reference layout:
 4. Technical terms
 5. Conclusion
 
-Frontmatter records the local source URI, source SHA-256, generator/effective
-model, requested model, prompt ID/version/SHA-256, prompt envelope version,
-review state, dates, and stable note UUID. The source body is not copied into
-the summary.
+Frontmatter records `type: summary`, the local source URI, source SHA-256,
+generator/effective model, prompt ID/version/SHA-256, prompt envelope version,
+review state, dates, and stable note UUID. Classification metadata such as
+`nouns` is intentionally left to a separate CLI. The source body is not copied
+into the summary.
+
+`schemaVersion` and `promptVersion` are quoted YAML strings, for example
+`schemaVersion: "2.0"` and `promptVersion: "1.0"`. They are version identifiers,
+not decimal quantities. Keeping them as strings preserves values such as
+`2.0`, `2.10`, or a future semantic version without YAML converting them to
+floating-point numbers.
 
 ## Configuration
 

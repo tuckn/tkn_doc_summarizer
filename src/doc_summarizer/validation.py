@@ -20,13 +20,11 @@ SUMMARY_FRONTMATTER_ORDER = [
     "title",
     "description",
     "cover",
-    "nouns",
     "url",
     "cliptool",
     "source",
     "sourceSha256",
     "generator",
-    "requestedModel",
     "promptId",
     "promptVersion",
     "promptSha256",
@@ -76,14 +74,12 @@ def validate_summary_text(text: str, *, verify_source: bool = True) -> list[str]
         return [str(exc)]
     if _frontmatter_keys(text) != SUMMARY_FRONTMATTER_ORDER:
         errors.append("summary frontmatter fields are missing or out of order")
-    if metadata.get("type") != "webClip":
-        errors.append("type must be 'webClip'")
+    if metadata.get("type") != "summary":
+        errors.append("type must be 'summary'")
     if str(metadata.get("schemaVersion")) != SUMMARY_SCHEMA_VERSION:
         errors.append(f"schemaVersion must be {SUMMARY_SCHEMA_VERSION}")
     if metadata.get("cliptool") != "Codex":
         errors.append("cliptool must be 'Codex'")
-    if metadata.get("nouns") != []:
-        errors.append("nouns must default to []")
     if metadata.get("reviewStatus") not in REVIEW_STATUSES:
         errors.append("reviewStatus must be one of: " + ", ".join(REVIEW_STATUSES))
     for key in (

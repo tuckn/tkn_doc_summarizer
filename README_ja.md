@@ -184,9 +184,15 @@ Codexへ渡す一時schema/outputはOS標準の一時directoryに置き、実行
 4. Technical terms
 5. Conclusion
 
-Frontmatterには、ローカルsource URI、source SHA-256、generator・実効model、
-要求model、prompt ID/version/SHA-256、prompt envelope version、review状態、
-日時、安定したnote UUIDを記録します。source本文は要約ノートへ複製しません。
+Frontmatterには `type: summary`、ローカルsource URI、source SHA-256、
+generator・実効model、prompt ID/version/SHA-256、prompt envelope version、
+review状態、日時、安定したnote UUIDを記録します。`nouns` などの分類metadataは
+別CLIへ委ねるため登録しません。source本文は要約ノートへ複製しません。
+
+`schemaVersion` と `promptVersion` は、`schemaVersion: "2.0"`、
+`promptVersion: "1.0"` のようなYAML文字列として出力します。これらは小数値ではなく
+version識別子です。文字列にすることで、`2.0`、`2.10`、将来のsemantic versionを
+YAMLの浮動小数点数へ変換させず、そのまま保持できます。
 
 ## 設定
 

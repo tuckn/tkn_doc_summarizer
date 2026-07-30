@@ -122,12 +122,14 @@ def _is_current(
     prompt_sha256: str,
     requested_model: str | None,
 ) -> bool:
+    generator = str(metadata.get("generator") or "")
+    model_matches = requested_model is None or generator == f"Codex ({requested_model})"
     return (
         metadata.get("sourceSha256") == source.source_sha256
         and str(metadata.get("promptVersion") or "") == prompt_version
         and metadata.get("promptSha256") == prompt_sha256
         and metadata.get("promptEnvelopeVersion") == PROMPT_ENVELOPE_VERSION
-        and metadata.get("requestedModel") == requested_model
+        and model_matches
     )
 
 
@@ -219,7 +221,7 @@ def _summarize(
             reason = (
                 "; ".join(existing_errors)
                 if existing_errors
-                else "source, prompt, or requested model changed"
+                else "source, prompt, or explicitly selected model changed"
             )
             raise FileExistsError(
                 f"existing summary requires explicit --overwrite ({reason}): {target}"
@@ -276,7 +278,6 @@ def _summarize(
         document=generated.document,
         now=now,
         generator=generated.generator,
-        requested_model=config.model,
         prompt_id=prompt.prompt_id,
         prompt_version=prompt.version,
         prompt_sha256=prompt.sha256,

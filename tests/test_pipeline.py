@@ -87,6 +87,15 @@ def test_create_validate_and_idempotent_rerun(tmp_path: Path) -> None:
     assert first.report_path is not None
     assert not validate_summary(first.path)
     assert provider.calls == 1
+    text = first.path.read_text(encoding="utf-8")
+    metadata, _ = split_frontmatter(text)
+    assert metadata["type"] == "summary"
+    assert metadata["schemaVersion"] == "2.0"
+    assert metadata["promptVersion"] == "1.0"
+    assert "nouns" not in metadata
+    assert "requestedModel" not in metadata
+    assert 'schemaVersion: "2.0"' in text
+    assert 'promptVersion: "1.0"' in text
 
     second = summarize(str(source), _config(tmp_path), provider=provider)
     assert second.status == "unchanged"
