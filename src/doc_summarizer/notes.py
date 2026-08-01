@@ -13,7 +13,7 @@ from urllib.parse import unquote, urlparse
 from doc_summarizer.models import DocumentSource, SummaryDocument
 from doc_summarizer.source import split_frontmatter
 
-SUMMARY_SCHEMA_VERSION = "2.0"
+SUMMARY_SCHEMA_VERSION = "3.0"
 DESCRIPTION_MAX_CHARS = 240
 REVIEW_STATUSES = (
     "unreviewed",
@@ -103,22 +103,33 @@ def render_summary(
         "",
         f"# {source.title}",
         "",
-        "## 1. Summary",
-        "",
-        document.summary.strip(),
-        "",
-        "## 2. Structuring (from abstract to concrete)",
-        "",
     ]
+    if source.cover:
+        lines.extend([f"![]({source.cover})", ""])
+    lines.extend(
+        [
+            "## 1. Summary",
+            "",
+            document.summary.strip(),
+            "",
+            "## 2. Structuring (from abstract to concrete)",
+            "",
+        ]
+    )
     for section in document.structuring:
-        lines.extend(
-            [
-                f"### {section.heading.strip()}",
-                "",
-                *(f"- {detail.strip()}" for detail in section.details),
-                "",
-            ]
-        )
+        lines.extend([f"### {section.heading.strip()}", ""])
+        lines.extend(f"- {detail.strip()}" for detail in section.details)
+        if section.details:
+            lines.append("")
+        for subsection in section.subsections:
+            lines.extend(
+                [
+                    f"#### {subsection.heading.strip()}",
+                    "",
+                    *(f"- {detail.strip()}" for detail in subsection.details),
+                    "",
+                ]
+            )
     lines.extend(["## 3. Key points", ""])
     lines.extend(f"- {point.strip()}" for point in document.key_points)
     lines.extend(["", "## 4. Technical terms", ""])

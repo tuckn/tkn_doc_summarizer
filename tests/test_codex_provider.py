@@ -30,7 +30,13 @@ def _document_json() -> str:
         {
             "description": "Description",
             "summary": "Summary",
-            "structuring": [{"heading": "Topic", "details": ["Detail"]}],
+            "structuring": [
+                {
+                    "heading": "Topic",
+                    "details": [],
+                    "subsections": [{"heading": "Subtopic", "details": ["Detail"]}],
+                }
+            ],
             "key_points": ["Point"],
             "technical_terms": ["**Term**: Explanation."],
             "conclusion": "Conclusion",
@@ -48,6 +54,10 @@ def test_codex_provider_uses_structured_output(
         commands.append(command)
         if command[-1] == "--version":
             return subprocess.CompletedProcess(command, 0, "codex-cli 1.0\n", "")
+        schema = json.loads(Path(command[command.index("--output-schema") + 1]).read_text())
+        assert "SummarySubsection" in schema["$defs"]
+        summary_section = schema["$defs"]["SummarySection"]
+        assert set(summary_section["required"]) == set(summary_section["properties"])
         output_index = command.index("--output-last-message") + 1
         Path(command[output_index]).write_text(_document_json(), encoding="utf-8")
         return subprocess.CompletedProcess(command, 0, "", "model: test-model\n")

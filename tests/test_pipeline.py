@@ -9,6 +9,7 @@ from doc_summarizer.models import (
     SummaryDocument,
     SummaryRequest,
     SummarySection,
+    SummarySubsection,
 )
 from doc_summarizer.pipeline import summarize
 from doc_summarizer.prompting import PROMPT_ENVELOPE_VERSION, load_summary_prompt
@@ -31,7 +32,13 @@ class FakeProvider:
                 structuring=[
                     SummarySection(
                         heading="Main topic",
-                        details=["The source provides one important fact."],
+                        details=[],
+                        subsections=[
+                            SummarySubsection(
+                                heading="Supporting detail",
+                                details=["The source provides one important fact."],
+                            )
+                        ],
                     )
                 ],
                 key_points=["The important fact is retained."],
@@ -90,12 +97,19 @@ def test_create_validate_and_idempotent_rerun(tmp_path: Path) -> None:
     text = first.path.read_text(encoding="utf-8")
     metadata, _ = split_frontmatter(text)
     assert metadata["type"] == "summary"
-    assert metadata["schemaVersion"] == "2.0"
-    assert metadata["promptVersion"] == "1.0"
+    assert metadata["schemaVersion"] == "3.0"
+    assert metadata["promptVersion"] == "2.0"
     assert "nouns" not in metadata
     assert "requestedModel" not in metadata
-    assert 'schemaVersion: "2.0"' in text
-    assert 'promptVersion: "1.0"' in text
+    assert 'schemaVersion: "3.0"' in text
+    assert 'promptVersion: "2.0"' in text
+    assert (
+        text.index("# Example article")
+        < text.index("![](https://example.com/cover.png)")
+        < text.index("## 1. Summary")
+    )
+    assert "### Main topic" in text
+    assert "#### Supporting detail" in text
 
     second = summarize(str(source), _config(tmp_path), provider=provider)
     assert second.status == "unchanged"
@@ -152,6 +166,35 @@ def test_overwrite_preserves_identity_and_resets_review(tmp_path: Path) -> None:
     assert metadata["noteId"] == original_metadata["noteId"]
     assert metadata["date"] == original_metadata["date"]
     assert metadata["reviewStatus"] == "unreviewed"
+
+
+def test_summary_section_requires_direct_details_or_subsections() -> None:
+    with pytest.raises(ValueError, match="must contain details or subsections"):
+        SummarySection(heading="Empty", details=[], subsections=[])
+
+
+def test_current_summary_requires_cover_image(tmp_path: Path) -> None:
+    result = summarize(str(_source(tmp_path)), _config(tmp_path), provider=FakeProvider())
+    text = result.path.read_text(encoding="utf-8").replace(
+        "![](https://example.com/cover.png)\n\n",
+        "",
+        1,
+    )
+    result.path.write_text(text, encoding="utf-8")
+
+    assert validate_summary(result.path) == ["summary body must contain the cover image"]
+
+
+def test_existing_schema_2_summary_without_cover_image_remains_valid(tmp_path: Path) -> None:
+    result = summarize(str(_source(tmp_path)), _config(tmp_path), provider=FakeProvider())
+    text = (
+        result.path.read_text(encoding="utf-8")
+        .replace('schemaVersion: "3.0"', 'schemaVersion: "2.0"')
+        .replace("![](https://example.com/cover.png)\n\n", "", 1)
+    )
+    result.path.write_text(text, encoding="utf-8")
+
+    assert validate_summary(result.path) == []
 
 
 def test_explicit_output_collision_is_rejected(tmp_path: Path) -> None:

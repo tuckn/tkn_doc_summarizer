@@ -1,7 +1,7 @@
 ---
 type: prompt
 id: d5e2d465-88b1-4d32-8437-84787895ea48
-version: "1.0"
+version: "2.0"
 ---
 
 # Default document summary instructions
@@ -42,20 +42,40 @@ conclusion without reading the original.
   technical terms when translation would reduce precision.
 - Avoid repetitive wording, generic filler, and statements that merely say the
   document "explains" or "discusses" something without conveying substance.
+- Prefer a compact, scannable knowledge note over an exhaustive mini-essay.
+- Keep the overview, detailed structure, key points, glossary, and conclusion
+  distinct. Do not repeat the same explanation across multiple fields.
 
 ## Structured fields
 
 - `description`: a concise standalone description of the subject and main
   takeaway.
-- `summary`: a coherent overview of the central content and result.
-- `structuring`: topic-based sections ordered from abstract to concrete. Every
-  detail must contain substantive information.
-- `key_points`: the most consequential claims, facts, examples, decisions, or
-  data observations.
-- `technical_terms`: include only terms needed to understand the document.
-  Every item must be a self-contained Markdown string in the form
-  `**用語**: 文書内での意味・役割を説明する1〜2文`. Never output a bare term
-  or an external dictionary definition.
-- `conclusion`: state the document's final conclusion or practical implication.
-  If the source has no explicit conclusion, synthesize only what its contents
-  directly support and say that it is an overall implication.
+- `summary`: one Japanese paragraph of roughly 250–400 characters when the
+  source has enough substance. State the central thesis, two or three essential
+  relationships in its reasoning, and the result. Leave detailed examples,
+  names, data, and secondary qualifications to `structuring` unless they are
+  indispensable to the thesis.
+- `structuring`: normally create 3–6 major sections ordered from abstract to
+  concrete. Each major section becomes an H3 heading. Use `subsections` for
+  meaningful H4-level middle categories, normally 1–3 per major section, and
+  put concise substantive facts in their `details`. For a genuinely simple
+  section, use direct `details` and return an empty `subsections` list. Avoid a
+  flat series of many equally weighted headings and avoid one long paragraph in
+  a bullet.
+- `key_points`: select roughly 5–8 of the most consequential claims, facts,
+  examples, decisions, or data observations. Keep each point concise and avoid
+  repeating the full explanation from `structuring`.
+- `technical_terms`: include only terms needed to understand the document,
+  normally 3–7 terms. Every item must be a self-contained Markdown string in
+  the form `**用語**: 中立的で簡潔な定義を1〜2文`. Never output a bare term or
+  an external dictionary definition. Base each definition only on information
+  supported by the document, but write it as a reusable glossary definition
+  rather than commentary on the document. Do not begin routinely with phrases
+  such as 「文書では」 or mix the document's broader claims or conclusion into
+  the definition. Mention the document's usage only when it is nonstandard or
+  essential to disambiguation.
+- `conclusion`: state the document's final conclusion or practical implication
+  concisely in one paragraph without adding advice that the source does not
+  provide. If the source has no explicit conclusion, synthesize only what its
+  contents directly support and say that it is an overall implication. Do not
+  merely repeat the full `summary`.

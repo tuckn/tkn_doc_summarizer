@@ -176,7 +176,10 @@ prompt injection対策、source metadata/contentの境界、JSON出力schemaは�
 Codexへ渡す一時schema/outputはOS標準の一時directoryに置き、実行後に削除します。
 リポジトリルートへruntime dataを作りません。
 
-生成ノートは参考ノートと同じsection構成です。
+生成ノートは参考ノートと同じsection構成です。`cover` がある文書は、タイトル直下に
+画像を表示します。Summaryは1段落・約250〜400字を目安とし、Structuringは通常、
+H3の大分類、H4の中分類、簡潔な箇条書きという階層で構成します。Key pointsは主要な
+5〜8件、Technical termsは中立的で再利用可能な定義3〜7件を目安に絞ります。
 
 1. Summary
 2. Structuring (from abstract to concrete)
@@ -189,8 +192,8 @@ generator・実効model、prompt ID/version/SHA-256、prompt envelope version、
 review状態、日時、安定したnote UUIDを記録します。`nouns` などの分類metadataは
 別CLIへ委ねるため登録しません。source本文は要約ノートへ複製しません。
 
-`schemaVersion` と `promptVersion` は、`schemaVersion: "2.0"`、
-`promptVersion: "1.0"` のようなYAML文字列として出力します。これらは小数値ではなく
+`schemaVersion` と `promptVersion` は、`schemaVersion: "3.0"`、
+`promptVersion: "2.0"` のようなYAML文字列として出力します。これらは小数値ではなく
 version識別子です。文字列にすることで、`2.0`、`2.10`、将来のsemantic versionを
 YAMLの浮動小数点数へ変換させず、そのまま保持できます。
 

@@ -34,6 +34,7 @@ SUMMARY_FRONTMATTER_ORDER = [
     "updated",
     "noteId",
 ]
+SUPPORTED_SUMMARY_SCHEMA_VERSIONS = ("2.0", SUMMARY_SCHEMA_VERSION)
 
 
 def _frontmatter_keys(text: str) -> list[str]:
@@ -76,8 +77,10 @@ def validate_summary_text(text: str, *, verify_source: bool = True) -> list[str]
         errors.append("summary frontmatter fields are missing or out of order")
     if metadata.get("type") != "summary":
         errors.append("type must be 'summary'")
-    if str(metadata.get("schemaVersion")) != SUMMARY_SCHEMA_VERSION:
-        errors.append(f"schemaVersion must be {SUMMARY_SCHEMA_VERSION}")
+    schema_version = str(metadata.get("schemaVersion"))
+    if schema_version not in SUPPORTED_SUMMARY_SCHEMA_VERSIONS:
+        allowed = ", ".join(SUPPORTED_SUMMARY_SCHEMA_VERSIONS)
+        errors.append(f"schemaVersion must be one of: {allowed}")
     if metadata.get("cliptool") != "Codex":
         errors.append("cliptool must be 'Codex'")
     if metadata.get("reviewStatus") not in REVIEW_STATUSES:
@@ -109,6 +112,16 @@ def validate_summary_text(text: str, *, verify_source: bool = True) -> list[str]
                 errors.append(f"{key} must use canonical lowercase UUID form")
         except (ValueError, AttributeError):
             errors.append(f"{key} must be a UUID")
+    if schema_version == SUMMARY_SCHEMA_VERSION and metadata.get("cover"):
+        title_heading = f"# {metadata.get('title')}"
+        cover_embed = f"![]({metadata.get('cover')})"
+        title_position = body.find(title_heading)
+        embed_position = body.find(cover_embed)
+        summary_position = body.find("## 1. Summary")
+        if embed_position < 0:
+            errors.append("summary body must contain the cover image")
+        elif title_position < 0 or not (title_position < embed_position < summary_position):
+            errors.append("summary cover image must appear after the title and before Summary")
     headings = [
         "## 1. Summary",
         "## 2. Structuring (from abstract to concrete)",

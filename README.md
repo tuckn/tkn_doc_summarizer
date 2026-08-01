@@ -181,7 +181,11 @@ Default locations:
 Temporary Codex schema/output files use the platform temporary directory and
 are removed after execution. The repository root is not used for runtime data.
 
-Generated notes follow the reference layout:
+Generated notes follow the reference layout. When the source has a `cover`, it
+is shown directly below the title. Summary is normally one Japanese paragraph
+of about 250–400 characters. Structuring normally uses H3 major sections, H4
+subsections, and concise bullets. Key points are narrowed to roughly 5–8 major
+items, and Technical terms to roughly 3–7 neutral, reusable definitions.
 
 1. Summary
 2. Structuring (from abstract to concrete)
@@ -196,7 +200,7 @@ review state, dates, and stable note UUID. Classification metadata such as
 into the summary.
 
 `schemaVersion` and `promptVersion` are quoted YAML strings, for example
-`schemaVersion: "2.0"` and `promptVersion: "1.0"`. They are version identifiers,
+`schemaVersion: "3.0"` and `promptVersion: "2.0"`. They are version identifiers,
 not decimal quantities. Keeping them as strings preserves values such as
 `2.0`, `2.10`, or a future semantic version without YAML converting them to
 floating-point numbers.

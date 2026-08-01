@@ -17,6 +17,9 @@ def test_built_in_prompt_is_packaged() -> None:
     assert prompt.mode == "built-in"
     assert len(prompt.sha256) == 64
     assert "Source fidelity" in prompt.instructions
+    assert prompt.version == "2.0"
+    assert "roughly 250–400 characters" in prompt.instructions
+    assert "Use `subsections` for" in prompt.instructions
 
 
 def test_custom_prompt_requires_valid_frontmatter(tmp_path: Path) -> None:
