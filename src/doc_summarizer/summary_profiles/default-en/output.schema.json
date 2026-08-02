@@ -61,12 +61,13 @@
   "additionalProperties": false,
   "properties": {
     "description": {
+      "description": "A concise English description of the subject and main takeaway",
       "minLength": 1,
       "title": "Description",
       "type": "string"
     },
     "summary": {
-      "description": "One compact Japanese paragraph that states the central thesis, essential reasoning, and result without duplicating the detailed structure",
+      "description": "One compact English paragraph that states the central thesis, essential reasoning, and result without duplicating the detailed structure",
       "minLength": 1,
       "title": "Summary",
       "type": "string"
@@ -88,7 +89,7 @@
       "type": "array"
     },
     "technical_terms": {
-      "description": "Important terms formatted as Markdown strings in the form '**term**: one or two source-grounded explanatory sentences'",
+      "description": "Important terms formatted in English as Markdown strings in the form '**term**: one or two source-grounded explanatory sentences'",
       "items": {
         "type": "string"
       },
@@ -97,6 +98,7 @@
       "type": "array"
     },
     "conclusion": {
+      "description": "A concise English conclusion or practical implication supported by the source",
       "minLength": 1,
       "title": "Conclusion",
       "type": "string"

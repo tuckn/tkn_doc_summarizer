@@ -44,7 +44,26 @@ SUMMARY_FRONTMATTER_ORDER = [
     "templateSha256",
     *LEGACY_SUMMARY_FRONTMATTER_ORDER[13:],
 ]
-SUPPORTED_SUMMARY_SCHEMA_VERSIONS = ("2.0", "3.0", SUMMARY_SCHEMA_VERSION)
+PROFILED_SUMMARY_SCHEMA_VERSIONS = ("4.0", SUMMARY_SCHEMA_VERSION)
+SUPPORTED_SUMMARY_SCHEMA_VERSIONS = (
+    "2.0",
+    "3.0",
+    *PROFILED_SUMMARY_SCHEMA_VERSIONS,
+)
+ENGLISH_HEADINGS = (
+    "## 1. Summary",
+    "## 2. Structuring (from abstract to concrete)",
+    "## 3. Key points",
+    "## 4. Technical terms",
+    "## 5. Conclusion",
+)
+JAPANESE_HEADINGS = (
+    "## 1. 要約",
+    "## 2. 構造化（抽象から具体へ）",
+    "## 3. 重要ポイント",
+    "## 4. 専門用語",
+    "## 5. 結論",
+)
 
 
 def _frontmatter_keys(text: str) -> list[str]:
@@ -77,6 +96,12 @@ def _section(body: str, heading: str, next_heading: str | None = None) -> str:
     return value
 
 
+def _summary_headings(metadata: dict[str, object], schema_version: str) -> tuple[str, ...]:
+    if schema_version == SUMMARY_SCHEMA_VERSION and metadata.get("summaryProfile") == "default-ja":
+        return JAPANESE_HEADINGS
+    return ENGLISH_HEADINGS
+
+
 def validate_summary_text(text: str, *, verify_source: bool = True) -> list[str]:
     errors: list[str] = []
     try:
@@ -86,7 +111,7 @@ def validate_summary_text(text: str, *, verify_source: bool = True) -> list[str]
     schema_version = str(metadata.get("schemaVersion"))
     expected_order = (
         SUMMARY_FRONTMATTER_ORDER
-        if schema_version == SUMMARY_SCHEMA_VERSION
+        if schema_version in PROFILED_SUMMARY_SCHEMA_VERSIONS
         else LEGACY_SUMMARY_FRONTMATTER_ORDER
     )
     if _frontmatter_keys(text) != expected_order:
@@ -117,7 +142,7 @@ def validate_summary_text(text: str, *, verify_source: bool = True) -> list[str]
     ):
         if not metadata.get(key):
             errors.append(f"{key} must be non-empty")
-    if schema_version == SUMMARY_SCHEMA_VERSION:
+    if schema_version in PROFILED_SUMMARY_SCHEMA_VERSIONS:
         for key in (
             "summaryProfile",
             "summaryProfileSha256",
@@ -131,13 +156,13 @@ def validate_summary_text(text: str, *, verify_source: bool = True) -> list[str]
         if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", str(metadata.get("summaryProfile") or "")):
             errors.append("summaryProfile must use a lowercase kebab-case name")
     digest_keys = ["sourceSha256", "promptSha256"]
-    if schema_version == SUMMARY_SCHEMA_VERSION:
+    if schema_version in PROFILED_SUMMARY_SCHEMA_VERSIONS:
         digest_keys.extend(["summaryProfileSha256", "outputSchemaSha256", "templateSha256"])
     for key in digest_keys:
         if not re.fullmatch(r"[0-9a-f]{64}", str(metadata.get(key) or "")):
             errors.append(f"{key} must be a lowercase SHA-256 digest")
     uuid_keys = ["promptId", "noteId"]
-    if schema_version == SUMMARY_SCHEMA_VERSION:
+    if schema_version in PROFILED_SUMMARY_SCHEMA_VERSIONS:
         uuid_keys.append("templateId")
     for key in uuid_keys:
         try:
@@ -146,23 +171,19 @@ def validate_summary_text(text: str, *, verify_source: bool = True) -> list[str]
                 errors.append(f"{key} must use canonical lowercase UUID form")
         except (ValueError, AttributeError):
             errors.append(f"{key} must be a UUID")
-    if schema_version in ("3.0", SUMMARY_SCHEMA_VERSION) and metadata.get("cover"):
+    headings = _summary_headings(metadata, schema_version)
+    if schema_version in ("3.0", *PROFILED_SUMMARY_SCHEMA_VERSIONS) and metadata.get("cover"):
         title_heading = f"# {metadata.get('title')}"
         cover_embed = f"![]({metadata.get('cover')})"
         title_position = body.find(title_heading)
         embed_position = body.find(cover_embed)
-        summary_position = body.find("## 1. Summary")
+        summary_position = body.find(headings[0])
         if embed_position < 0:
             errors.append("summary body must contain the cover image")
         elif title_position < 0 or not (title_position < embed_position < summary_position):
-            errors.append("summary cover image must appear after the title and before Summary")
-    headings = [
-        "## 1. Summary",
-        "## 2. Structuring (from abstract to concrete)",
-        "## 3. Key points",
-        "## 4. Technical terms",
-        "## 5. Conclusion",
-    ]
+            errors.append(
+                "summary cover image must appear after the title and before the first section"
+            )
     positions = [body.find(heading) for heading in headings]
     if any(position < 0 for position in positions):
         errors.append("summary headings are incomplete")
@@ -176,7 +197,7 @@ def validate_summary_text(text: str, *, verify_source: bool = True) -> list[str]
             except ValueError as exc:
                 errors.append(str(exc))
     terms_match = re.search(
-        r"(?ms)^## 4\. Technical terms\s*$\n(.*?)^## 5\. Conclusion\s*$",
+        rf"(?ms)^{re.escape(headings[3])}\s*$\n(.*?)^{re.escape(headings[4])}\s*$",
         body,
     )
     if terms_match:

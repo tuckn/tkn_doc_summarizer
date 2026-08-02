@@ -6,9 +6,11 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 APP_ID = "doc_summarizer"
+DEFAULT_SUMMARY_PROFILE = "default-ja"
+BUILT_IN_SUMMARY_PROFILES = ("default-ja", "default-en")
 
 
 class AppConfig(BaseModel):
@@ -22,7 +24,16 @@ class AppConfig(BaseModel):
     codex_executable: str = "codex"
     codex_timeout_seconds: int = Field(default=1800, ge=1)
     max_input_bytes: int = Field(default=2_000_000, ge=1)
+    summary_profile: str = DEFAULT_SUMMARY_PROFILE
     summary_prompt: Path | None = None
+
+    @field_validator("summary_profile")
+    @classmethod
+    def validate_summary_profile(cls, value: str) -> str:
+        if value not in BUILT_IN_SUMMARY_PROFILES:
+            allowed = ", ".join(BUILT_IN_SUMMARY_PROFILES)
+            raise ValueError(f"summary_profile must be one of: {allowed}")
+        return value
 
 
 class ResolvedConfig(BaseModel):
@@ -53,6 +64,7 @@ def default_values() -> dict[str, Any]:
         "codex_executable": "codex",
         "codex_timeout_seconds": 1800,
         "max_input_bytes": 2_000_000,
+        "summary_profile": DEFAULT_SUMMARY_PROFILE,
         "summary_prompt": None,
     }
 
@@ -150,5 +162,6 @@ def public_config(config: AppConfig) -> dict[str, object]:
         "codex_executable": config.codex_executable,
         "codex_timeout_seconds": config.codex_timeout_seconds,
         "max_input_bytes": config.max_input_bytes,
+        "summary_profile": config.summary_profile,
         "summary_prompt": str(config.summary_prompt) if config.summary_prompt else None,
     }

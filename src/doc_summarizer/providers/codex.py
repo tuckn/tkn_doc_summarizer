@@ -9,6 +9,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+from doc_summarizer.config import DEFAULT_SUMMARY_PROFILE
 from doc_summarizer.models import SummaryDocument, SummaryRequest
 from doc_summarizer.prompting import load_summary_prompt, render_summary_prompt
 from doc_summarizer.providers.base import ProviderResult
@@ -30,13 +31,14 @@ class CodexProvider:
         executable: str = "codex",
         model: str | None = None,
         timeout_seconds: int = 1800,
+        summary_profile: str = DEFAULT_SUMMARY_PROFILE,
         summary_prompt: Path | None = None,
     ) -> None:
         self.executable = executable
         self.model = model
         self.timeout_seconds = timeout_seconds
-        self.prompt = load_summary_prompt(summary_prompt)
-        self.profile = load_summary_profile(prompt=self.prompt)
+        self.prompt = load_summary_prompt(summary_prompt, profile_name=summary_profile)
+        self.profile = load_summary_profile(summary_profile, prompt=self.prompt)
 
     def preflight(self) -> str:
         logger.debug("Running Codex preflight: %s --version", self.executable)

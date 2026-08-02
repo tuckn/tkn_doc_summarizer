@@ -15,7 +15,10 @@ codex_executable: codex
 codex_timeout_seconds: 1800
 max_input_bytes: 2000000
 
-# null uses the packaged prompt. A filename is resolved below
+# Built-in language/profile: default-ja or default-en.
+summary_profile: default-ja
+
+# null uses the selected profile's packaged prompt. A filename is resolved below
 # ~/.tkn/doc_summarizer/prompts/. Use an absolute path for other locations.
 # Create a custom prompt with: doc-summarizer prompt init
 summary_prompt: null

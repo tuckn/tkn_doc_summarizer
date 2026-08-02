@@ -4,7 +4,7 @@ id: d5e2d465-88b1-4d32-8437-84787895ea48
 version: "2.0"
 ---
 
-# Default document summary instructions
+# Japanese document summary instructions
 
 Create a source-faithful Japanese summary of the complete supplied document.
 The result must let a reader understand its subject, central claims, reasoning,
@@ -48,8 +48,8 @@ conclusion without reading the original.
 
 ## Structured fields
 
-- `description`: a concise standalone description of the subject and main
-  takeaway.
+- `description`: a concise standalone Japanese description of the subject and
+  main takeaway.
 - `summary`: one Japanese paragraph of roughly 250–400 characters when the
   source has enough substance. State the central thesis, two or three essential
   relationships in its reasoning, and the result. Leave detailed examples,
@@ -61,10 +61,10 @@ conclusion without reading the original.
   put concise substantive facts in their `details`. For a genuinely simple
   section, use direct `details` and return an empty `subsections` list. Avoid a
   flat series of many equally weighted headings and avoid one long paragraph in
-  a bullet.
+  a bullet. Write headings and details in Japanese.
 - `key_points`: select roughly 5–8 of the most consequential claims, facts,
-  examples, decisions, or data observations. Keep each point concise and avoid
-  repeating the full explanation from `structuring`.
+  examples, decisions, or data observations. Keep each point concise, write it
+  in Japanese, and avoid repeating the full explanation from `structuring`.
 - `technical_terms`: include only terms needed to understand the document,
   normally 3–7 terms. Every item must be a self-contained Markdown string in
   the form `**用語**: 中立的で簡潔な定義を1〜2文`. Never output a bare term or
@@ -75,7 +75,7 @@ conclusion without reading the original.
   the definition. Mention the document's usage only when it is nonstandard or
   essential to disambiguation.
 - `conclusion`: state the document's final conclusion or practical implication
-  concisely in one paragraph without adding advice that the source does not
-  provide. If the source has no explicit conclusion, synthesize only what its
-  contents directly support and say that it is an overall implication. Do not
-  merely repeat the full `summary`.
+  concisely in one Japanese paragraph without adding advice that the source does
+  not provide. If the source has no explicit conclusion, synthesize only what
+  its contents directly support and say that it is an overall implication. Do
+  not merely repeat the full `summary`.

@@ -53,8 +53,9 @@ class SummaryDocument(StrictModel):
     summary: str = Field(
         min_length=1,
         description=(
-            "One compact Japanese paragraph that states the central thesis, essential "
-            "reasoning, and result without duplicating the detailed structure"
+            "One compact paragraph in the active summary profile's language that states "
+            "the central thesis, essential reasoning, and result without duplicating the "
+            "detailed structure"
         ),
     )
     structuring: list[SummarySection] = Field(min_length=1)

@@ -14,7 +14,7 @@ from doc_summarizer.models import DocumentSource, SummaryDocument
 from doc_summarizer.source import split_frontmatter
 from doc_summarizer.summary_resources import SummaryProfile, render_summary_template
 
-SUMMARY_SCHEMA_VERSION = "4.0"
+SUMMARY_SCHEMA_VERSION = "5.0"
 DESCRIPTION_MAX_CHARS = 240
 REVIEW_STATUSES = (
     "unreviewed",

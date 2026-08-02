@@ -74,6 +74,25 @@ def test_config_show_reports_summary_profile_resources(
 
     payload = json.loads(capsys.readouterr().out)  # type: ignore[attr-defined]
     profile = payload["values"]["summary_profile"]
-    assert profile["source"].endswith("summary_profiles/default")
+    assert profile["name"] == "default-ja"
+    assert profile["source"].endswith("summary_profiles/default-ja")
     assert profile["output_schema"]["source"].endswith("output.schema.json")
     assert profile["template"]["source"].endswith("template.md")
+
+
+def test_config_show_accepts_cli_summary_profile_override(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: object,
+) -> None:
+    monkeypatch.setattr(
+        config_module,
+        "global_config_path",
+        lambda: tmp_path / "missing-config.yaml",
+    )
+
+    assert main(["config", "show", "--summary-profile", "default-en"]) == 0
+
+    payload = json.loads(capsys.readouterr().out)  # type: ignore[attr-defined]
+    assert payload["values"]["summary_profile"]["name"] == "default-en"
+    assert payload["value_sources"]["summary_profile"] == "CLI options"

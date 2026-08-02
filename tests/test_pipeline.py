@@ -20,9 +20,9 @@ from doc_summarizer.validation import validate_summary
 
 
 class FakeProvider:
-    def __init__(self) -> None:
-        self.prompt = load_summary_prompt()
-        self.profile = load_summary_profile(prompt=self.prompt)
+    def __init__(self, profile_name: str = "default-ja") -> None:
+        self.prompt = load_summary_prompt(profile_name=profile_name)
+        self.profile = load_summary_profile(profile_name, prompt=self.prompt)
         self.calls = 0
 
     def generate(self, request: SummaryRequest) -> ProviderResult:
@@ -59,7 +59,7 @@ class FakeProvider:
         )
 
 
-def _config(tmp_path: Path) -> AppConfig:
+def _config(tmp_path: Path, profile_name: str = "default-ja") -> AppConfig:
     return AppConfig(
         source_roots=[],
         output_root=tmp_path / "summaries",
@@ -69,6 +69,7 @@ def _config(tmp_path: Path) -> AppConfig:
         codex_executable="codex",
         codex_timeout_seconds=60,
         max_input_bytes=100_000,
+        summary_profile=profile_name,
         summary_prompt=None,
     )
 
@@ -99,9 +100,9 @@ def test_create_validate_and_idempotent_rerun(tmp_path: Path) -> None:
     text = first.path.read_text(encoding="utf-8")
     metadata, _ = split_frontmatter(text)
     assert metadata["type"] == "summary"
-    assert metadata["schemaVersion"] == "4.0"
+    assert metadata["schemaVersion"] == "5.0"
     assert metadata["promptVersion"] == "2.0"
-    assert metadata["summaryProfile"] == "default"
+    assert metadata["summaryProfile"] == "default-ja"
     assert metadata["summaryProfileSha256"] == provider.profile.sha256
     assert metadata["outputSchemaSha256"] == provider.profile.schema.sha256
     assert metadata["templateId"] == provider.profile.template.template_id
@@ -109,13 +110,14 @@ def test_create_validate_and_idempotent_rerun(tmp_path: Path) -> None:
     assert metadata["templateSha256"] == provider.profile.template.sha256
     assert "nouns" not in metadata
     assert "requestedModel" not in metadata
-    assert 'schemaVersion: "4.0"' in text
+    assert 'schemaVersion: "5.0"' in text
     assert 'promptVersion: "2.0"' in text
     assert (
         text.index("# Example article")
         < text.index("![](https://example.com/cover.png)")
-        < text.index("## 1. Summary")
+        < text.index("## 1. 要約")
     )
+    assert "_default-ja_" in first.path.name
     assert "### Main topic" in text
     assert "#### Supporting detail" in text
 
@@ -137,6 +139,61 @@ def test_dry_run_has_no_provider_call_or_writes(tmp_path: Path) -> None:
     assert provider.calls == 0
     assert not result.path.exists()
     assert not (tmp_path / "reports").exists()
+
+
+def test_japanese_and_english_profiles_create_side_by_side(tmp_path: Path) -> None:
+    source = _source(tmp_path)
+    japanese = summarize(
+        str(source),
+        _config(tmp_path, "default-ja"),
+        provider=FakeProvider("default-ja"),
+    )
+    english = summarize(
+        str(source),
+        _config(tmp_path, "default-en"),
+        provider=FakeProvider("default-en"),
+    )
+
+    assert japanese.path != english.path
+    assert "_default-ja_" in japanese.path.name
+    assert "_default-en_" in english.path.name
+    assert "## 1. 要約" in japanese.path.read_text(encoding="utf-8")
+    assert "## 1. Summary" in english.path.read_text(encoding="utf-8")
+
+
+def test_same_custom_prompt_can_coexist_across_profiles(tmp_path: Path) -> None:
+    source = _source(tmp_path)
+    custom_path = tmp_path / "custom.md"
+    custom_path.write_text(
+        "---\n"
+        "type: prompt\n"
+        "id: c7aa8da6-263e-454d-80e7-b320578bea95\n"
+        'version: "1.0"\n'
+        "---\n\n"
+        "Custom instructions.\n",
+        encoding="utf-8",
+    )
+    custom_prompt = load_summary_prompt(custom_path)
+    japanese_provider = FakeProvider("default-ja")
+    japanese_provider.prompt = custom_prompt
+    japanese_provider.profile = load_summary_profile("default-ja", prompt=custom_prompt)
+    english_provider = FakeProvider("default-en")
+    english_provider.prompt = custom_prompt
+    english_provider.profile = load_summary_profile("default-en", prompt=custom_prompt)
+
+    japanese = summarize(
+        str(source),
+        _config(tmp_path, "default-ja"),
+        provider=japanese_provider,
+    )
+    english = summarize(
+        str(source),
+        _config(tmp_path, "default-en"),
+        provider=english_provider,
+    )
+
+    assert japanese.path != english.path
+    assert japanese_provider.prompt.prompt_id == english_provider.prompt.prompt_id
 
 
 def test_changed_source_requires_overwrite(tmp_path: Path) -> None:
@@ -216,8 +273,32 @@ def test_existing_summary_schema_remains_valid(
         line for line in text.splitlines() if line.partition(":")[0] not in profile_fields
     )
     text = text.replace('schemaVersion: "4.0"', f'schemaVersion: "{schema_version}"')
+    text = text.replace('schemaVersion: "5.0"', f'schemaVersion: "{schema_version}"')
+    text = (
+        text.replace("## 1. 要約", "## 1. Summary")
+        .replace("## 2. 構造化（抽象から具体へ）", "## 2. Structuring (from abstract to concrete)")
+        .replace("## 3. 重要ポイント", "## 3. Key points")
+        .replace("## 4. 専門用語", "## 4. Technical terms")
+        .replace("## 5. 結論", "## 5. Conclusion")
+    )
     if remove_cover:
         text = text.replace("![](https://example.com/cover.png)\n\n", "", 1)
+    result.path.write_text(text, encoding="utf-8")
+
+    assert validate_summary(result.path) == []
+
+
+def test_existing_schema_4_summary_remains_valid(tmp_path: Path) -> None:
+    result = summarize(str(_source(tmp_path)), _config(tmp_path), provider=FakeProvider())
+    text = (
+        result.path.read_text(encoding="utf-8")
+        .replace('schemaVersion: "5.0"', 'schemaVersion: "4.0"')
+        .replace("## 1. 要約", "## 1. Summary")
+        .replace("## 2. 構造化（抽象から具体へ）", "## 2. Structuring (from abstract to concrete)")
+        .replace("## 3. 重要ポイント", "## 3. Key points")
+        .replace("## 4. 専門用語", "## 4. Technical terms")
+        .replace("## 5. 結論", "## 5. Conclusion")
+    )
     result.path.write_text(text, encoding="utf-8")
 
     assert validate_summary(result.path) == []
@@ -227,7 +308,7 @@ def test_explicit_output_collision_is_rejected(tmp_path: Path) -> None:
     source = _source(tmp_path)
     output = tmp_path / "manual.md"
     output.write_text("# User file", encoding="utf-8")
-    with pytest.raises(RuntimeError, match="another source or prompt"):
+    with pytest.raises(RuntimeError, match="another source, summary profile, or prompt"):
         summarize(
             str(source),
             _config(tmp_path),

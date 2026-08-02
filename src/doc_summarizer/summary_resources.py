@@ -12,9 +12,9 @@ from typing import Any
 
 import yaml
 
+from doc_summarizer.config import DEFAULT_SUMMARY_PROFILE
 from doc_summarizer.prompting import SummaryPrompt, parse_summary_prompt
 
-DEFAULT_SUMMARY_PROFILE = "default"
 SUMMARY_PROFILES_ROOT = "summary_profiles"
 PROMPT_FILENAME = "prompt.md"
 SCHEMA_FILENAME = "output.schema.json"

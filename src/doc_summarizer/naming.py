@@ -49,12 +49,13 @@ def build_output_path(
     source_path: Path,
     published: str | None,
     title: str,
+    profile_name: str,
     prompt_id: str,
     limit: int = 200,
 ) -> Path:
     source_date = _source_date(published, source_path)
     prefix = source_date.strftime("%Y%m%d")
-    suffix = f"_{uuid.UUID(prompt_id).hex[:8]}.md"
+    suffix = f"_{profile_name}_{uuid.UUID(prompt_id).hex[:8]}.md"
     safe = sanitize_title(title)
     if not safe:
         raise ValueError("title is empty after filename sanitization")

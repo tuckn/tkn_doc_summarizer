@@ -12,7 +12,7 @@ from typing import Literal
 
 import yaml
 
-from doc_summarizer.config import user_prompts_root
+from doc_summarizer.config import DEFAULT_SUMMARY_PROFILE, user_prompts_root
 from doc_summarizer.models import SummaryRequest
 
 PROMPT_ENVELOPE_VERSION = "document-summary-envelope-v1"
@@ -69,11 +69,15 @@ def parse_summary_prompt(
     )
 
 
-def load_summary_prompt(path: Path | None = None) -> SummaryPrompt:
+def load_summary_prompt(
+    path: Path | None = None,
+    *,
+    profile_name: str = DEFAULT_SUMMARY_PROFILE,
+) -> SummaryPrompt:
     if path is None:
         from doc_summarizer.summary_resources import load_summary_profile
 
-        return load_summary_profile().prompt
+        return load_summary_profile(profile_name).prompt
     source_path = path.expanduser().absolute()
     if source_path.suffix.lower() != ".md":
         raise ValueError(f"summary prompt must use the .md extension: {source_path}")
@@ -120,7 +124,11 @@ def _render_prompt_document(prompt_id: str, version: str, instructions: str) -> 
     )
 
 
-def initialize_user_prompt(name: str = "summary.md") -> Path:
+def initialize_user_prompt(
+    name: str = "summary.md",
+    *,
+    profile_name: str = DEFAULT_SUMMARY_PROFILE,
+) -> Path:
     if (
         not name
         or Path(name).name != name
@@ -129,7 +137,7 @@ def initialize_user_prompt(name: str = "summary.md") -> Path:
         or Path(name).suffix.lower() != ".md"
     ):
         raise ValueError("prompt name must be a .md filename without path separators")
-    built_in = load_summary_prompt()
+    built_in = load_summary_prompt(profile_name=profile_name)
     document = _render_prompt_document(
         str(uuid.uuid4()),
         INITIAL_PROMPT_VERSION,

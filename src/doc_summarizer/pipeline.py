@@ -34,6 +34,7 @@ def provider_for_config(config: AppConfig) -> SummaryProvider:
         executable=config.codex_executable,
         model=config.model,
         timeout_seconds=config.codex_timeout_seconds,
+        summary_profile=config.summary_profile,
         summary_prompt=config.summary_prompt,
     )
 
@@ -50,6 +51,7 @@ def _find_existing(
     output_root: Path,
     *,
     source_uri: str,
+    profile_name: str,
     prompt_id: str,
 ) -> Path | None:
     if not output_root.is_dir():
@@ -61,12 +63,13 @@ def _find_existing(
             continue
         if (
             metadata.get("source") == source_uri
+            and str(metadata.get("summaryProfile") or "") == profile_name
             and str(metadata.get("promptId") or "") == prompt_id
         ):
             matches.append(candidate)
     if len(matches) > 1:
         raise FileExistsError(
-            "multiple summaries share the same source and promptId: "
+            "multiple summaries share the same source, summaryProfile, and promptId: "
             + ", ".join(str(path) for path in sorted(matches))
         )
     return matches[0] if matches else None
@@ -88,6 +91,7 @@ def _target_path(
     existing = _find_existing(
         config.output_root,
         source_uri=source_uri,
+        profile_name=provider.profile.name,
         prompt_id=provider.prompt.prompt_id,
     )
     if existing:
@@ -97,6 +101,7 @@ def _target_path(
         source_path=source.path,
         published=source.published,
         title=source.title,
+        profile_name=provider.profile.name,
         prompt_id=provider.prompt.prompt_id,
     )
 
@@ -105,12 +110,18 @@ def _validate_existing_identity(
     metadata: dict[str, Any],
     *,
     source_uri: str,
+    profile_name: str,
     prompt_id: str,
     target: Path,
 ) -> None:
-    if metadata.get("source") != source_uri or str(metadata.get("promptId") or "") != prompt_id:
+    if (
+        metadata.get("source") != source_uri
+        or str(metadata.get("summaryProfile") or "") != profile_name
+        or str(metadata.get("promptId") or "") != prompt_id
+    ):
         raise FileExistsError(
-            f"refusing to replace an output that belongs to another source or prompt: {target}"
+            "refusing to replace an output that belongs to another source, "
+            f"summary profile, or prompt: {target}"
         )
 
 
@@ -194,6 +205,7 @@ def _summarize(
         _validate_existing_identity(
             existing_metadata,
             source_uri=source_uri,
+            profile_name=profile.name,
             prompt_id=prompt.prompt_id,
             target=target,
         )

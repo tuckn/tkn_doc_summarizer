@@ -10,7 +10,12 @@ from pathlib import Path
 from typing import Any
 
 from doc_summarizer import __version__
-from doc_summarizer.config import public_config, resolve_config
+from doc_summarizer.config import (
+    BUILT_IN_SUMMARY_PROFILES,
+    DEFAULT_SUMMARY_PROFILE,
+    public_config,
+    resolve_config,
+)
 from doc_summarizer.console_logging import ColorFormatter, log_success, supports_color
 from doc_summarizer.pipeline import summarize
 from doc_summarizer.prompting import initialize_user_prompt, load_summary_prompt
@@ -58,6 +63,11 @@ def _common(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--codex-executable")
     parser.add_argument("--codex-timeout-seconds", type=int)
     parser.add_argument("--max-input-bytes", type=int)
+    parser.add_argument(
+        "--summary-profile",
+        choices=BUILT_IN_SUMMARY_PROFILES,
+        help="built-in summary language/profile override for this run",
+    )
     parser.add_argument(
         "--summary-prompt",
         type=Path,
@@ -133,6 +143,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="create an editable prompt copy with a new UUID",
     )
     prompt_init.add_argument("name", nargs="?", default="summary.md")
+    prompt_init.add_argument(
+        "--summary-profile",
+        choices=BUILT_IN_SUMMARY_PROFILES,
+        default=DEFAULT_SUMMARY_PROFILE,
+        help="built-in profile whose prompt is copied",
+    )
     _verbosity(prompt_init)
     return parser
 
@@ -148,6 +164,7 @@ def _resolved(args: argparse.Namespace) -> Any:
             "codex_executable",
             "codex_timeout_seconds",
             "max_input_bytes",
+            "summary_profile",
             "summary_prompt",
         )
     }
@@ -170,8 +187,15 @@ def main(argv: list[str] | None = None) -> int:
     logger.debug("Parsed command: %s", args.command)
     try:
         if args.command == "prompt":
-            logger.info("Initializing user summary prompt: %s", args.name)
-            path = initialize_user_prompt(args.name)
+            logger.info(
+                "Initializing user summary prompt from profile %s: %s",
+                args.summary_profile,
+                args.name,
+            )
+            path = initialize_user_prompt(
+                args.name,
+                profile_name=args.summary_profile,
+            )
             prompt = load_summary_prompt(path)
             print(
                 json.dumps(
@@ -204,8 +228,11 @@ def main(argv: list[str] | None = None) -> int:
         config = resolved.config
         logger.debug("Configuration sources: %s", ", ".join(resolved.sources))
         if args.command == "config":
-            prompt = load_summary_prompt(config.summary_prompt)
-            profile = load_summary_profile(prompt=prompt)
+            prompt = load_summary_prompt(
+                config.summary_prompt,
+                profile_name=config.summary_profile,
+            )
+            profile = load_summary_profile(config.summary_profile, prompt=prompt)
             values = public_config(config)
             values["summary_prompt"] = {
                 "configured": values["summary_prompt"],

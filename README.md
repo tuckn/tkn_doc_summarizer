@@ -51,6 +51,7 @@ source_roots:
 output_root: ~/.tkn/doc_summarizer/data/summaries
 reports_root: ~/.tkn/doc_summarizer/state/reports
 model: null
+summary_profile: default-ja
 ```
 
 The real `./.tkn/config.yaml` is ignored by Git. The application does not create
@@ -62,6 +63,12 @@ Summarize a clipped Markdown file:
 
 ```console
 doc-summarizer summarize "C:\path\to\clipped-article.md"
+```
+
+Generate an English note for the same source with a one-run override:
+
+```console
+doc-summarizer summarize "C:\path\to\clipped-article.md" --summary-profile default-en
 ```
 
 Summarize the same local clip by its original URL:
@@ -101,6 +108,7 @@ schema, validate the generated Markdown, and atomically write one summary note.
 - `--output FILE`: uses an exact `.md` destination.
 - `--output-root DIR`: overrides the configured automatically named destination.
 - `--source-root DIR`: overrides URL search roots; repeat for multiple roots.
+- `--summary-profile PROFILE`: selects `default-ja` or `default-en` for this run.
 - `--summary-prompt FILE`: selects custom Markdown instructions.
 - `--model MODEL`: selects a Codex model for this run.
 - `--overwrite`: regenerates the matching summary when source, prompt, or model
@@ -110,7 +118,8 @@ schema, validate the generated Markdown, and atomically write one summary note.
 Without `--overwrite`, a current, valid summary returns `unchanged` without
 calling Codex. A stale, invalid, or different existing output is not replaced.
 Even with `--overwrite`, the application refuses to replace a file belonging to
-another source or prompt.
+another source, summary profile, or prompt. Different profiles create separate
+notes and can coexist for the same source.
 
 Success is confirmed by final JSON with `created`, `updated`, or `unchanged`,
 the summary path, source path, validation details, and run-report path.
@@ -146,6 +155,7 @@ are never replaced, and the command does not change configuration.
 
 ```console
 doc-summarizer prompt init my-summary.md
+doc-summarizer prompt init my-english-summary.md --summary-profile default-en
 ```
 
 Set `summary_prompt: my-summary.md` in configuration or pass
@@ -161,8 +171,10 @@ version: "1.0"
 Your instructions...
 ```
 
-Application-managed prompt-injection protection, source metadata/content
-delimiters, and the JSON output schema remain outside editable instructions.
+Application-managed prompt-injection protection and source metadata/content
+delimiters remain outside editable instructions. A custom prompt replaces only
+the prompt in the selected profile; its language-specific schema and template
+remain active.
 
 ## Output and storage
 
@@ -172,7 +184,7 @@ Default locations:
 ~/.tkn/doc_summarizer/
 ├── config.yaml
 ├── data/
-│   └── summaries/<year>/<date>_<title>_<prompt-id-prefix>.md
+│   └── summaries/<year>/<date>_<title>_<profile>_<prompt-id-prefix>.md
 ├── prompts/
 └── state/
     └── reports/<run-id>.json
@@ -181,17 +193,17 @@ Default locations:
 Temporary Codex schema/output files use the platform temporary directory and
 are removed after execution. The repository root is not used for runtime data.
 
-Generated notes follow the reference layout. When the source has a `cover`, it
-is shown directly below the title. Summary is normally one Japanese paragraph
-of about 250–400 characters. Structuring normally uses H3 major sections, H4
-subsections, and concise bullets. Key points are narrowed to roughly 5–8 major
-items, and Technical terms to roughly 3–7 neutral, reusable definitions.
+`default-ja` is the default and generates Japanese content with Japanese H2
+section headings; its Summary is normally one paragraph of about 250–400
+characters. `default-en` generates English content with English H2 section
+headings; its Summary is normally about 120–200 words. Both profiles use H3
+major sections, H4 subsections, concise bullets, roughly 5–8 Key points, and
+roughly 3–7 neutral, reusable Technical-term definitions. When the source has a
+`cover`, it is shown directly below the title.
 
-1. Summary
-2. Structuring (from abstract to concrete)
-3. Key points
-4. Technical terms
-5. Conclusion
+The Japanese headings are `要約`, `構造化（抽象から具体へ）`, `重要ポイント`,
+`専門用語`, and `結論`; the English equivalents are `Summary`, `Structuring
+(from abstract to concrete)`, `Key points`, `Technical terms`, and `Conclusion`.
 
 Frontmatter records `type: summary`, the local source URI, source SHA-256,
 generator/effective model, prompt ID/version/SHA-256, summary-profile and output
@@ -201,7 +213,7 @@ intentionally left to a separate CLI. The source body is not copied into the
 summary.
 
 `schemaVersion` and `promptVersion` are quoted YAML strings, for example
-`schemaVersion: "4.0"` and `promptVersion: "2.0"`. They are version identifiers,
+`schemaVersion: "5.0"` and `promptVersion: "2.0"`. They are version identifiers,
 not decimal quantities. Keeping them as strings preserves values such as
 `2.0`, `2.10`, or a future semantic version without YAML converting them to
 floating-point numbers.
@@ -230,7 +242,8 @@ sources, and unsupported providers fail closed.
 | `codex_executable` | `codex` | Executable or shim name |
 | `codex_timeout_seconds` | `1800` | Generation timeout |
 | `max_input_bytes` | `2000000` | Maximum UTF-8 source file size |
-| `summary_prompt` | `null` | Built-in prompt, user prompt filename, or absolute path |
+| `summary_profile` | `default-ja` | Built-in language/profile: `default-ja` or `default-en` |
+| `summary_prompt` | `null` | Selected profile's prompt, user prompt filename, or absolute path |
 
 ## Logs and automation
 
@@ -276,7 +289,11 @@ application-owned profile:
 
 ```text
 src/doc_summarizer/summary_profiles/
-└── default/
+├── default-ja/
+│   ├── prompt.md
+│   ├── output.schema.json
+│   └── template.md
+└── default-en/
     ├── prompt.md
     ├── output.schema.json
     └── template.md
@@ -290,16 +307,17 @@ profile hash participates in idempotency, so changing the schema or template
 cannot leave an older note incorrectly classified as current.
 `config show` reports the active profile and each resource's provenance.
 
-Custom prompts remain supported. They replace only `default/prompt.md` and are
-combined with the default schema and template into a separately fingerprinted
-profile. Additional application-maintained formats can be added later as
-sibling profile directories. Coordinate field changes across the prompt,
+Select a profile with `summary_profile` in YAML or `--summary-profile` on the
+CLI; CLI selection has normal highest precedence. Custom prompts remain
+supported. They replace only the selected profile's `prompt.md` and are combined
+with that profile's schema and template into a separately fingerprinted profile.
+Coordinate field changes across the prompt,
 schema, Pydantic models, renderer, validation, and tests; coordinate layout
 changes across the template, renderer, validation, and tests.
 
-Existing schema 2.0 and 3.0 notes remain accepted by `validate`. Because they
-predate the profile fingerprint, regenerating one is treated as a resource
-change and still requires explicit `--overwrite`.
+Existing schema 2.0 through 4.0 notes remain accepted by `validate`. New
+profile-aware filenames and identity allow Japanese and English schema 5.0 notes
+for one source to coexist without overwriting an older note.
 
 ```console
 uv sync --locked

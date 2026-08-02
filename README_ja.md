@@ -51,6 +51,7 @@ source_roots:
 output_root: ~/.tkn/doc_summarizer/data/summaries
 reports_root: ~/.tkn/doc_summarizer/state/reports
 model: null
+summary_profile: default-ja
 ```
 
 実設定の `./.tkn/config.yaml` はGit管理対象外です。`config show` ではdirectoryを
@@ -62,6 +63,12 @@ model: null
 
 ```console
 doc-summarizer summarize "C:\path\to\clipped-article.md"
+```
+
+同じsourceの英語版を、この実行だけprofileを上書きして生成できます。
+
+```console
+doc-summarizer summarize "C:\path\to\clipped-article.md" --summary-profile default-en
 ```
 
 同じローカルクリップを元記事URLで要約します。
@@ -100,6 +107,7 @@ UTF-8のローカルソースを1件解決し、Codexへstructured JSON schema�
 - `--output FILE`: 出力する `.md` の正確なパスを指定します。
 - `--output-root DIR`: 自動命名時の出力先設定を、この実行だけ上書きします。
 - `--source-root DIR`: URL検索先を上書きします。複数回指定できます。
+- `--summary-profile PROFILE`: この実行で `default-ja` または `default-en` を選択します。
 - `--summary-prompt FILE`: カスタムMarkdownプロンプトを指定します。
 - `--model MODEL`: この実行で使うCodex modelを指定します。
 - `--overwrite`: source、prompt、modelの変更後に一致する要約を再生成します。
@@ -107,7 +115,8 @@ UTF-8のローカルソースを1件解決し、Codexへstructured JSON schema�
 
 `--overwrite` がなければ、現在の有効な要約はCodexを呼ばず `unchanged` になります。
 古い要約、不正な要約、内容が異なる既存出力は置換しません。`--overwrite` があっても、
-別のsourceまたはpromptに属するファイルは置換しません。
+別のsource、summary profile、promptに属するファイルは置換しません。異なるprofileは
+同じsourceに対して別ノートとして共存できます。
 
 成功時、`created`、`updated`、`unchanged` の状態、要約パス、sourceパス、
 検証情報、実行reportパスを含むJSONを返します。
@@ -140,6 +149,7 @@ built-in promptの編集用コピーを `~/.tkn/doc_summarizer/prompts/` に作�
 
 ```console
 doc-summarizer prompt init my-summary.md
+doc-summarizer prompt init my-english-summary.md --summary-profile default-en
 ```
 
 使用するには、設定へ `summary_prompt: my-summary.md` を追加するか、
@@ -156,8 +166,9 @@ version: "1.0"
 Your instructions...
 ```
 
-prompt injection対策、source metadata/contentの境界、JSON出力schemaは、
-編集可能な指示文の外側でapplicationが管理します。
+prompt injection対策とsource metadata/contentの境界は、編集可能な指示文の外側で
+applicationが管理します。カスタムpromptは選択profileのpromptだけを置換し、
+言語別のschemaとtemplateはそのまま使用します。
 
 ## 出力と保存先
 
@@ -167,7 +178,7 @@ prompt injection対策、source metadata/contentの境界、JSON出力schemaは�
 ~/.tkn/doc_summarizer/
 ├── config.yaml
 ├── data/
-│   └── summaries/<year>/<date>_<title>_<prompt-id-prefix>.md
+│   └── summaries/<year>/<date>_<title>_<profile>_<prompt-id-prefix>.md
 ├── prompts/
 └── state/
     └── reports/<run-id>.json
@@ -176,16 +187,15 @@ prompt injection対策、source metadata/contentの境界、JSON出力schemaは�
 Codexへ渡す一時schema/outputはOS標準の一時directoryに置き、実行後に削除します。
 リポジトリルートへruntime dataを作りません。
 
-生成ノートは参考ノートと同じsection構成です。`cover` がある文書は、タイトル直下に
-画像を表示します。Summaryは1段落・約250〜400字を目安とし、Structuringは通常、
-H3の大分類、H4の中分類、簡潔な箇条書きという階層で構成します。Key pointsは主要な
-5〜8件、Technical termsは中立的で再利用可能な定義3〜7件を目安に絞ります。
+既定の `default-ja` は、日本語本文、日本語H2見出し、1段落・約250〜400字の要約を
+生成します。`default-en` は、英語本文、英語H2見出し、約120〜200語の要約を生成します。
+どちらも通常、H3の大分類、H4の中分類、簡潔な箇条書きという階層で構成し、重要ポイントは
+5〜8件、専門用語は中立的で再利用可能な定義3〜7件を目安に絞ります。`cover` がある文書は、
+タイトル直下に画像を表示します。
 
-1. Summary
-2. Structuring (from abstract to concrete)
-3. Key points
-4. Technical terms
-5. Conclusion
+日本語見出しは「要約」「構造化（抽象から具体へ）」「重要ポイント」「専門用語」「結論」、
+英語見出しは `Summary`、`Structuring (from abstract to concrete)`、`Key points`、
+`Technical terms`、`Conclusion` です。
 
 Frontmatterには `type: summary`、ローカルsource URI、source SHA-256、
 generator・実効model、prompt ID/version/SHA-256、summary profileとoutput schemaの
@@ -193,7 +203,7 @@ SHA-256、template ID/version/SHA-256、prompt envelope version、review状態�
 安定したnote UUIDを記録します。`nouns` などの分類metadataは別CLIへ委ねるため
 登録しません。source本文は要約ノートへ複製しません。
 
-`schemaVersion` と `promptVersion` は、`schemaVersion: "4.0"`、
+`schemaVersion` と `promptVersion` は、`schemaVersion: "5.0"`、
 `promptVersion: "2.0"` のようなYAML文字列として出力します。これらは小数値ではなく
 version識別子です。文字列にすることで、`2.0`、`2.10`、将来のsemantic versionを
 YAMLの浮動小数点数へ変換させず、そのまま保持できます。
@@ -221,7 +231,8 @@ YAMLの浮動小数点数へ変換させず、そのまま保持できます。
 | `codex_executable` | `codex` | 実行ファイルまたはshim名 |
 | `codex_timeout_seconds` | `1800` | 生成timeout秒 |
 | `max_input_bytes` | `2000000` | UTF-8 sourceの最大size |
-| `summary_prompt` | `null` | built-in、user prompt名、または絶対path |
+| `summary_profile` | `default-ja` | built-in言語/profile。`default-ja` または `default-en` |
+| `summary_prompt` | `null` | 選択profileのprompt、user prompt名、または絶対path |
 
 ## ログとautomation
 
@@ -261,7 +272,11 @@ collision、validationの失敗は非0です。
 
 ```text
 src/doc_summarizer/summary_profiles/
-└── default/
+├── default-ja/
+│   ├── prompt.md
+│   ├── output.schema.json
+│   └── template.md
+└── default-en/
     ├── prompt.md
     ├── output.schema.json
     └── template.md
@@ -273,14 +288,14 @@ src/doc_summarizer/summary_profiles/
 templateを変更したのに旧ノートを最新と誤判定することはありません。
 `config show` ではactive profileと各resourceのprovenanceを確認できます。
 
-カスタムpromptは引き続き利用できます。その場合は `default/prompt.md` だけを置換し、
-default schema/templateと組み合わせた別のprofileとしてfingerprintを計算します。
-将来application管理の別形式を増やす場合は、同階層へprofile directoryを追加できます。
+YAMLの `summary_profile` またはCLIの `--summary-profile` でprofileを選び、CLI指定が通常どおり
+最優先になります。カスタムpromptは選択profileの `prompt.md` だけを置換し、そのprofileの
+schema/templateと組み合わせた別のprofileとしてfingerprintを計算します。
 field変更時はprompt、schema、Pydantic model、renderer、validation、testを、配置変更時は
 template、renderer、validation、testを協調して更新してください。
 
-既存schema 2.0/3.0 noteは引き続き `validate` できます。ただしprofile fingerprint導入前の
-出力なので、再生成時はresource変更として扱い、明示的な `--overwrite` を必要とします。
+既存schema 2.0〜4.0 noteは引き続き `validate` できます。新しいprofile付きファイル名と
+identityにより、同じsourceの日本語版・英語版schema 5.0 noteを上書きせず共存できます。
 
 ```console
 uv sync --locked

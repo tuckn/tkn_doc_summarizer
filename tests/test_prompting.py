@@ -15,12 +15,20 @@ from doc_summarizer.prompting import (
 def test_built_in_prompt_is_packaged() -> None:
     prompt = load_summary_prompt()
     assert prompt.mode == "built-in"
-    assert prompt.source.endswith("summary_profiles/default/prompt.md")
+    assert prompt.source.endswith("summary_profiles/default-ja/prompt.md")
     assert len(prompt.sha256) == 64
     assert "Source fidelity" in prompt.instructions
     assert prompt.version == "2.0"
     assert "roughly 250–400 characters" in prompt.instructions
     assert "Use `subsections` for" in prompt.instructions
+
+
+def test_english_built_in_prompt_is_packaged() -> None:
+    prompt = load_summary_prompt(profile_name="default-en")
+
+    assert prompt.source.endswith("summary_profiles/default-en/prompt.md")
+    assert "source-faithful English summary" in prompt.instructions
+    assert "roughly 120–200 words" in prompt.instructions
 
 
 def test_custom_prompt_requires_valid_frontmatter(tmp_path: Path) -> None:

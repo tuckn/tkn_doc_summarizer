@@ -56,6 +56,8 @@ def test_codex_provider_uses_structured_output(
             return subprocess.CompletedProcess(command, 0, "codex-cli 1.0\n", "")
         schema = json.loads(Path(command[command.index("--output-schema") + 1]).read_text())
         assert "SummarySubsection" in schema["$defs"]
+        assert "English paragraph" in schema["properties"]["summary"]["description"]
+        assert "source-faithful English summary" in str(kwargs["input"])
         summary_section = schema["$defs"]["SummarySection"]
         assert set(summary_section["required"]) == set(summary_section["properties"])
         output_index = command.index("--output-last-message") + 1
@@ -63,7 +65,10 @@ def test_codex_provider_uses_structured_output(
         return subprocess.CompletedProcess(command, 0, "", "model: test-model\n")
 
     monkeypatch.setattr(subprocess, "run", fake_run)
-    result = CodexProvider(timeout_seconds=60).generate(_request(tmp_path))
+    result = CodexProvider(
+        timeout_seconds=60,
+        summary_profile="default-en",
+    ).generate(_request(tmp_path))
     assert result.model == "test-model"
     assert "--output-schema" in commands[1]
     assert result.document.summary == "Summary"
