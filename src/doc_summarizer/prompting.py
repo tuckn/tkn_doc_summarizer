@@ -7,7 +7,6 @@ import json
 import os
 import uuid
 from dataclasses import dataclass
-from importlib.resources import files
 from pathlib import Path
 from typing import Literal
 
@@ -16,7 +15,6 @@ import yaml
 from doc_summarizer.config import user_prompts_root
 from doc_summarizer.models import SummaryRequest
 
-DEFAULT_PROMPT_RESOURCE = "prompts/default-summary.md"
 PROMPT_ENVELOPE_VERSION = "document-summary-envelope-v1"
 INITIAL_PROMPT_VERSION = "1.0"
 
@@ -31,7 +29,7 @@ class SummaryPrompt:
     sha256: str
 
 
-def _parse_prompt(
+def parse_summary_prompt(
     payload: bytes,
     source: str,
     mode: Literal["built-in", "custom"],
@@ -71,22 +69,11 @@ def _parse_prompt(
     )
 
 
-def _built_in_prompt() -> SummaryPrompt:
-    resource = files("doc_summarizer").joinpath(DEFAULT_PROMPT_RESOURCE)
-    try:
-        payload = resource.read_bytes()
-    except (OSError, FileNotFoundError) as exc:
-        raise RuntimeError(f"built-in summary prompt is unavailable: {exc}") from exc
-    return _parse_prompt(
-        payload,
-        f"package:doc_summarizer/{DEFAULT_PROMPT_RESOURCE}",
-        "built-in",
-    )
-
-
 def load_summary_prompt(path: Path | None = None) -> SummaryPrompt:
     if path is None:
-        return _built_in_prompt()
+        from doc_summarizer.summary_resources import load_summary_profile
+
+        return load_summary_profile().prompt
     source_path = path.expanduser().absolute()
     if source_path.suffix.lower() != ".md":
         raise ValueError(f"summary prompt must use the .md extension: {source_path}")
@@ -96,7 +83,7 @@ def load_summary_prompt(path: Path | None = None) -> SummaryPrompt:
         payload = source_path.read_bytes()
     except OSError as exc:
         raise ValueError(f"cannot read summary prompt {source_path}: {exc}") from exc
-    return _parse_prompt(payload, str(source_path), "custom")
+    return parse_summary_prompt(payload, str(source_path), "custom")
 
 
 def render_summary_prompt(prompt: SummaryPrompt, request: SummaryRequest) -> str:
@@ -142,7 +129,7 @@ def initialize_user_prompt(name: str = "summary.md") -> Path:
         or Path(name).suffix.lower() != ".md"
     ):
         raise ValueError("prompt name must be a .md filename without path separators")
-    built_in = _built_in_prompt()
+    built_in = load_summary_prompt()
     document = _render_prompt_document(
         str(uuid.uuid4()),
         INITIAL_PROMPT_VERSION,

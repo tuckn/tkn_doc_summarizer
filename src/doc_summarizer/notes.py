@@ -12,8 +12,9 @@ from urllib.parse import unquote, urlparse
 
 from doc_summarizer.models import DocumentSource, SummaryDocument
 from doc_summarizer.source import split_frontmatter
+from doc_summarizer.summary_resources import SummaryProfile, render_summary_template
 
-SUMMARY_SCHEMA_VERSION = "3.0"
+SUMMARY_SCHEMA_VERSION = "4.0"
 DESCRIPTION_MAX_CHARS = 240
 REVIEW_STATUSES = (
     "unreviewed",
@@ -69,9 +70,7 @@ def render_summary(
     document: SummaryDocument,
     now: datetime,
     generator: str,
-    prompt_id: str,
-    prompt_version: str,
-    prompt_sha256: str,
+    profile: SummaryProfile,
     prompt_envelope_version: str,
     note_id: str | None = None,
     created_at: datetime | None = None,
@@ -79,7 +78,9 @@ def render_summary(
     created = created_at or now
     source_uri = path_to_file_uri(source.path)
     canonical_reference = source.url or source_uri
-    lines = [
+    prompt = profile.prompt
+    template = profile.template
+    frontmatter_lines = [
         "---",
         "type: summary",
         f"schemaVersion: {yaml_quote(SUMMARY_SCHEMA_VERSION)}",
@@ -91,38 +92,30 @@ def render_summary(
         f"source: {yaml_quote(source_uri)}",
         f"sourceSha256: {source.source_sha256}",
         f"generator: {yaml_quote(generator)}",
-        f"promptId: {prompt_id}",
-        f"promptVersion: {yaml_quote(prompt_version)}",
-        f"promptSha256: {prompt_sha256}",
+        f"promptId: {prompt.prompt_id}",
+        f"promptVersion: {yaml_quote(prompt.version)}",
+        f"promptSha256: {prompt.sha256}",
+        f"summaryProfile: {yaml_quote(profile.name)}",
+        f"summaryProfileSha256: {profile.sha256}",
+        f"outputSchemaSha256: {profile.schema.sha256}",
+        f"templateId: {template.template_id}",
+        f"templateVersion: {yaml_quote(template.version)}",
+        f"templateSha256: {template.sha256}",
         f"promptEnvelopeVersion: {yaml_quote(prompt_envelope_version)}",
         "reviewStatus: unreviewed",
         f"date: {created.isoformat(timespec='seconds')}",
         f"updated: {now.isoformat(timespec='seconds')}",
         f"noteId: {note_id or uuid.uuid4()}",
         "---",
-        "",
-        f"# {source.title}",
-        "",
     ]
-    if source.cover:
-        lines.extend([f"![]({source.cover})", ""])
-    lines.extend(
-        [
-            "## 1. Summary",
-            "",
-            document.summary.strip(),
-            "",
-            "## 2. Structuring (from abstract to concrete)",
-            "",
-        ]
-    )
+    structuring_lines: list[str] = []
     for section in document.structuring:
-        lines.extend([f"### {section.heading.strip()}", ""])
-        lines.extend(f"- {detail.strip()}" for detail in section.details)
+        structuring_lines.extend([f"### {section.heading.strip()}", ""])
+        structuring_lines.extend(f"- {detail.strip()}" for detail in section.details)
         if section.details:
-            lines.append("")
+            structuring_lines.append("")
         for subsection in section.subsections:
-            lines.extend(
+            structuring_lines.extend(
                 [
                     f"#### {subsection.heading.strip()}",
                     "",
@@ -130,12 +123,19 @@ def render_summary(
                     "",
                 ]
             )
-    lines.extend(["## 3. Key points", ""])
-    lines.extend(f"- {point.strip()}" for point in document.key_points)
-    lines.extend(["", "## 4. Technical terms", ""])
-    lines.extend(f"- {term.strip()}" for term in document.technical_terms)
-    lines.extend(["", "## 5. Conclusion", "", document.conclusion.strip(), ""])
-    return "\n".join(lines)
+    return render_summary_template(
+        template,
+        {
+            "frontmatter": "\n".join(frontmatter_lines),
+            "title": source.title,
+            "cover": f"![]({source.cover})\n\n" if source.cover else "",
+            "summary": document.summary.strip(),
+            "structuring": "\n".join(structuring_lines),
+            "key_points": "\n".join(f"- {point.strip()}" for point in document.key_points),
+            "technical_terms": "\n".join(f"- {term.strip()}" for term in document.technical_terms),
+            "conclusion": document.conclusion.strip(),
+        },
+    )
 
 
 def summary_metadata(path: Path) -> dict[str, Any]:

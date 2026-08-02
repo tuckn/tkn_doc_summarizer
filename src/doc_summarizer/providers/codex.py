@@ -12,6 +12,7 @@ from pathlib import Path
 from doc_summarizer.models import SummaryDocument, SummaryRequest
 from doc_summarizer.prompting import load_summary_prompt, render_summary_prompt
 from doc_summarizer.providers.base import ProviderResult
+from doc_summarizer.summary_resources import load_summary_profile
 
 logger = logging.getLogger(__name__)
 MODEL_LINE = re.compile(r"(?m)^\s*model:\s*(\S+)\s*$")
@@ -35,6 +36,7 @@ class CodexProvider:
         self.model = model
         self.timeout_seconds = timeout_seconds
         self.prompt = load_summary_prompt(summary_prompt)
+        self.profile = load_summary_profile(prompt=self.prompt)
 
     def preflight(self) -> str:
         logger.debug("Running Codex preflight: %s --version", self.executable)
@@ -59,7 +61,7 @@ class CodexProvider:
     def generate(self, request: SummaryRequest) -> ProviderResult:
         provider_version = self.preflight()
         prompt_text = render_summary_prompt(self.prompt, request)
-        schema = SummaryDocument.model_json_schema()
+        schema = self.profile.schema.value
         with tempfile.TemporaryDirectory(prefix="doc-summarizer-codex-") as temporary:
             schema_path = Path(temporary) / "summary.schema.json"
             output_path = Path(temporary) / "summary.json"

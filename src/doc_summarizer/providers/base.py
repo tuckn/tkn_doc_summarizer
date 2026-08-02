@@ -7,6 +7,7 @@ from typing import Protocol
 
 from doc_summarizer.models import SummaryDocument, SummaryRequest
 from doc_summarizer.prompting import SummaryPrompt
+from doc_summarizer.summary_resources import SummaryProfile
 
 
 @dataclass(frozen=True)
@@ -25,5 +26,6 @@ class ProviderResult:
 
 class SummaryProvider(Protocol):
     prompt: SummaryPrompt
+    profile: SummaryProfile
 
     def generate(self, request: SummaryRequest) -> ProviderResult: ...

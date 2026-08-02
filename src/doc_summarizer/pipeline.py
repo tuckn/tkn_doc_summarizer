@@ -120,6 +120,7 @@ def _is_current(
     source: DocumentSource,
     prompt_version: str,
     prompt_sha256: str,
+    profile_sha256: str,
     requested_model: str | None,
 ) -> bool:
     generator = str(metadata.get("generator") or "")
@@ -128,6 +129,7 @@ def _is_current(
         metadata.get("sourceSha256") == source.source_sha256
         and str(metadata.get("promptVersion") or "") == prompt_version
         and metadata.get("promptSha256") == prompt_sha256
+        and metadata.get("summaryProfileSha256") == profile_sha256
         and metadata.get("promptEnvelopeVersion") == PROMPT_ENVELOPE_VERSION
         and model_matches
     )
@@ -181,6 +183,7 @@ def _summarize(
         max_input_bytes=config.max_input_bytes,
     )
     prompt = provider.prompt
+    profile = provider.profile
     target = _target_path(source, config, provider, explicit_output)
     source_uri = path_to_file_uri(source.path)
     existing_metadata: dict[str, Any] | None = None
@@ -200,6 +203,7 @@ def _summarize(
             source=source,
             prompt_version=prompt.version,
             prompt_sha256=prompt.sha256,
+            profile_sha256=profile.sha256,
             requested_model=config.model,
         )
         if current and not existing_errors and not overwrite:
@@ -214,6 +218,8 @@ def _summarize(
                     "prompt_id": prompt.prompt_id,
                     "prompt_version": prompt.version,
                     "prompt_sha256": prompt.sha256,
+                    "summary_profile": profile.name,
+                    "summary_profile_sha256": profile.sha256,
                     "dry_run": dry_run,
                 },
             )
@@ -246,6 +252,8 @@ def _summarize(
                 "prompt_id": prompt.prompt_id,
                 "prompt_version": prompt.version,
                 "prompt_sha256": prompt.sha256,
+                "summary_profile": profile.name,
+                "summary_profile_sha256": profile.sha256,
                 "dry_run": True,
             },
         )
@@ -278,9 +286,7 @@ def _summarize(
         document=generated.document,
         now=now,
         generator=generated.generator,
-        prompt_id=prompt.prompt_id,
-        prompt_version=prompt.version,
-        prompt_sha256=prompt.sha256,
+        profile=profile,
         prompt_envelope_version=PROMPT_ENVELOPE_VERSION,
         note_id=note_id,
         created_at=created_at,
@@ -308,6 +314,15 @@ def _summarize(
             "prompt_sha256": prompt.sha256,
             "prompt_envelope_version": PROMPT_ENVELOPE_VERSION,
             "prompt_source": prompt.source,
+            "summary_profile": profile.name,
+            "summary_profile_source": profile.source,
+            "summary_profile_sha256": profile.sha256,
+            "output_schema_source": profile.schema.source,
+            "output_schema_sha256": profile.schema.sha256,
+            "template_id": profile.template.template_id,
+            "template_version": profile.template.version,
+            "template_source": profile.template.source,
+            "template_sha256": profile.template.sha256,
             "dry_run": False,
         },
     )

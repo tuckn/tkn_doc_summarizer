@@ -188,11 +188,12 @@ H3の大分類、H4の中分類、簡潔な箇条書きという階層で構成�
 5. Conclusion
 
 Frontmatterには `type: summary`、ローカルsource URI、source SHA-256、
-generator・実効model、prompt ID/version/SHA-256、prompt envelope version、
-review状態、日時、安定したnote UUIDを記録します。`nouns` などの分類metadataは
-別CLIへ委ねるため登録しません。source本文は要約ノートへ複製しません。
+generator・実効model、prompt ID/version/SHA-256、summary profileとoutput schemaの
+SHA-256、template ID/version/SHA-256、prompt envelope version、review状態、日時、
+安定したnote UUIDを記録します。`nouns` などの分類metadataは別CLIへ委ねるため
+登録しません。source本文は要約ノートへ複製しません。
 
-`schemaVersion` と `promptVersion` は、`schemaVersion: "3.0"`、
+`schemaVersion` と `promptVersion` は、`schemaVersion: "4.0"`、
 `promptVersion: "2.0"` のようなYAML文字列として出力します。これらは小数値ではなく
 version識別子です。文字列にすることで、`2.0`、`2.10`、将来のsemantic versionを
 YAMLの浮動小数点数へ変換させず、そのまま保持できます。
@@ -253,6 +254,33 @@ collision、validationの失敗は非0です。
 - UTF-8 text fileを対象とし、binaryおよび `max_input_bytes` 超過を拒否します。
 
 ## 開発と検証
+
+### Summary profile
+
+要約生成を一体として定義するresourceは、application-owned profileとしてまとめています。
+
+```text
+src/doc_summarizer/summary_profiles/
+└── default/
+    ├── prompt.md
+    ├── output.schema.json
+    └── template.md
+```
+
+`prompt.md` は編集方針とfieldの意味、`output.schema.json` はCodexへ渡す構造化JSON契約、
+`template.md` は決定的なMarkdown配置を定義します。loaderは3つすべてを検証し、各SHA-256
+からprofile SHA-256を計算します。このprofile hashを冪等性判定にも使うため、schemaや
+templateを変更したのに旧ノートを最新と誤判定することはありません。
+`config show` ではactive profileと各resourceのprovenanceを確認できます。
+
+カスタムpromptは引き続き利用できます。その場合は `default/prompt.md` だけを置換し、
+default schema/templateと組み合わせた別のprofileとしてfingerprintを計算します。
+将来application管理の別形式を増やす場合は、同階層へprofile directoryを追加できます。
+field変更時はprompt、schema、Pydantic model、renderer、validation、testを、配置変更時は
+template、renderer、validation、testを協調して更新してください。
+
+既存schema 2.0/3.0 noteは引き続き `validate` できます。ただしprofile fingerprint導入前の
+出力なので、再生成時はresource変更として扱い、明示的な `--overwrite` を必要とします。
 
 ```console
 uv sync --locked

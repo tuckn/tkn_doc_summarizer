@@ -15,6 +15,7 @@ from doc_summarizer.prompting import (
 def test_built_in_prompt_is_packaged() -> None:
     prompt = load_summary_prompt()
     assert prompt.mode == "built-in"
+    assert prompt.source.endswith("summary_profiles/default/prompt.md")
     assert len(prompt.sha256) == 64
     assert "Source fidelity" in prompt.instructions
     assert prompt.version == "2.0"

@@ -14,6 +14,7 @@ from doc_summarizer.config import public_config, resolve_config
 from doc_summarizer.console_logging import ColorFormatter, log_success, supports_color
 from doc_summarizer.pipeline import summarize
 from doc_summarizer.prompting import initialize_user_prompt, load_summary_prompt
+from doc_summarizer.summary_resources import load_summary_profile
 from doc_summarizer.validation import validate_summary
 
 logger = logging.getLogger(__name__)
@@ -204,6 +205,7 @@ def main(argv: list[str] | None = None) -> int:
         logger.debug("Configuration sources: %s", ", ".join(resolved.sources))
         if args.command == "config":
             prompt = load_summary_prompt(config.summary_prompt)
+            profile = load_summary_profile(prompt=prompt)
             values = public_config(config)
             values["summary_prompt"] = {
                 "configured": values["summary_prompt"],
@@ -212,6 +214,21 @@ def main(argv: list[str] | None = None) -> int:
                 "id": prompt.prompt_id,
                 "version": prompt.version,
                 "sha256": prompt.sha256,
+            }
+            values["summary_profile"] = {
+                "name": profile.name,
+                "source": profile.source,
+                "sha256": profile.sha256,
+                "output_schema": {
+                    "source": profile.schema.source,
+                    "sha256": profile.schema.sha256,
+                },
+                "template": {
+                    "source": profile.template.source,
+                    "id": profile.template.template_id,
+                    "version": profile.template.version,
+                    "sha256": profile.template.sha256,
+                },
             }
             print(
                 json.dumps(

@@ -14,7 +14,7 @@ from doc_summarizer.notes import (
 )
 from doc_summarizer.source import split_frontmatter
 
-SUMMARY_FRONTMATTER_ORDER = [
+LEGACY_SUMMARY_FRONTMATTER_ORDER = [
     "type",
     "schemaVersion",
     "title",
@@ -34,7 +34,17 @@ SUMMARY_FRONTMATTER_ORDER = [
     "updated",
     "noteId",
 ]
-SUPPORTED_SUMMARY_SCHEMA_VERSIONS = ("2.0", SUMMARY_SCHEMA_VERSION)
+SUMMARY_FRONTMATTER_ORDER = [
+    *LEGACY_SUMMARY_FRONTMATTER_ORDER[:13],
+    "summaryProfile",
+    "summaryProfileSha256",
+    "outputSchemaSha256",
+    "templateId",
+    "templateVersion",
+    "templateSha256",
+    *LEGACY_SUMMARY_FRONTMATTER_ORDER[13:],
+]
+SUPPORTED_SUMMARY_SCHEMA_VERSIONS = ("2.0", "3.0", SUMMARY_SCHEMA_VERSION)
 
 
 def _frontmatter_keys(text: str) -> list[str]:
@@ -73,11 +83,16 @@ def validate_summary_text(text: str, *, verify_source: bool = True) -> list[str]
         metadata, body = split_frontmatter(text)
     except ValueError as exc:
         return [str(exc)]
-    if _frontmatter_keys(text) != SUMMARY_FRONTMATTER_ORDER:
+    schema_version = str(metadata.get("schemaVersion"))
+    expected_order = (
+        SUMMARY_FRONTMATTER_ORDER
+        if schema_version == SUMMARY_SCHEMA_VERSION
+        else LEGACY_SUMMARY_FRONTMATTER_ORDER
+    )
+    if _frontmatter_keys(text) != expected_order:
         errors.append("summary frontmatter fields are missing or out of order")
     if metadata.get("type") != "summary":
         errors.append("type must be 'summary'")
-    schema_version = str(metadata.get("schemaVersion"))
     if schema_version not in SUPPORTED_SUMMARY_SCHEMA_VERSIONS:
         allowed = ", ".join(SUPPORTED_SUMMARY_SCHEMA_VERSIONS)
         errors.append(f"schemaVersion must be one of: {allowed}")
@@ -102,17 +117,36 @@ def validate_summary_text(text: str, *, verify_source: bool = True) -> list[str]
     ):
         if not metadata.get(key):
             errors.append(f"{key} must be non-empty")
-    for key in ("sourceSha256", "promptSha256"):
+    if schema_version == SUMMARY_SCHEMA_VERSION:
+        for key in (
+            "summaryProfile",
+            "summaryProfileSha256",
+            "outputSchemaSha256",
+            "templateId",
+            "templateVersion",
+            "templateSha256",
+        ):
+            if not metadata.get(key):
+                errors.append(f"{key} must be non-empty")
+        if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", str(metadata.get("summaryProfile") or "")):
+            errors.append("summaryProfile must use a lowercase kebab-case name")
+    digest_keys = ["sourceSha256", "promptSha256"]
+    if schema_version == SUMMARY_SCHEMA_VERSION:
+        digest_keys.extend(["summaryProfileSha256", "outputSchemaSha256", "templateSha256"])
+    for key in digest_keys:
         if not re.fullmatch(r"[0-9a-f]{64}", str(metadata.get(key) or "")):
             errors.append(f"{key} must be a lowercase SHA-256 digest")
-    for key in ("promptId", "noteId"):
+    uuid_keys = ["promptId", "noteId"]
+    if schema_version == SUMMARY_SCHEMA_VERSION:
+        uuid_keys.append("templateId")
+    for key in uuid_keys:
         try:
             normalized = str(uuid.UUID(str(metadata.get(key))))
             if normalized != str(metadata.get(key)):
                 errors.append(f"{key} must use canonical lowercase UUID form")
         except (ValueError, AttributeError):
             errors.append(f"{key} must be a UUID")
-    if schema_version == SUMMARY_SCHEMA_VERSION and metadata.get("cover"):
+    if schema_version in ("3.0", SUMMARY_SCHEMA_VERSION) and metadata.get("cover"):
         title_heading = f"# {metadata.get('title')}"
         cover_embed = f"![]({metadata.get('cover')})"
         title_position = body.find(title_heading)

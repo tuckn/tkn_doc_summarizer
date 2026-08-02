@@ -1,0 +1,115 @@
+{
+  "$defs": {
+    "SummarySection": {
+      "additionalProperties": false,
+      "properties": {
+        "heading": {
+          "minLength": 1,
+          "title": "Heading",
+          "type": "string"
+        },
+        "details": {
+          "description": "Direct details used only when a second heading level is unnecessary",
+          "items": {
+            "type": "string"
+          },
+          "title": "Details",
+          "type": "array"
+        },
+        "subsections": {
+          "description": "Optional H4-level groups below this major H3 section",
+          "items": {
+            "$ref": "#/$defs/SummarySubsection"
+          },
+          "title": "Subsections",
+          "type": "array"
+        }
+      },
+      "required": [
+        "heading",
+        "details",
+        "subsections"
+      ],
+      "title": "SummarySection",
+      "type": "object"
+    },
+    "SummarySubsection": {
+      "additionalProperties": false,
+      "properties": {
+        "heading": {
+          "minLength": 1,
+          "title": "Heading",
+          "type": "string"
+        },
+        "details": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Details",
+          "type": "array"
+        }
+      },
+      "required": [
+        "heading",
+        "details"
+      ],
+      "title": "SummarySubsection",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "description": {
+      "minLength": 1,
+      "title": "Description",
+      "type": "string"
+    },
+    "summary": {
+      "description": "One compact Japanese paragraph that states the central thesis, essential reasoning, and result without duplicating the detailed structure",
+      "minLength": 1,
+      "title": "Summary",
+      "type": "string"
+    },
+    "structuring": {
+      "items": {
+        "$ref": "#/$defs/SummarySection"
+      },
+      "minItems": 1,
+      "title": "Structuring",
+      "type": "array"
+    },
+    "key_points": {
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Key Points",
+      "type": "array"
+    },
+    "technical_terms": {
+      "description": "Important terms formatted as Markdown strings in the form '**term**: one or two source-grounded explanatory sentences'",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Technical Terms",
+      "type": "array"
+    },
+    "conclusion": {
+      "minLength": 1,
+      "title": "Conclusion",
+      "type": "string"
+    }
+  },
+  "required": [
+    "description",
+    "summary",
+    "structuring",
+    "key_points",
+    "technical_terms",
+    "conclusion"
+  ],
+  "title": "SummaryDocument",
+  "type": "object"
+}

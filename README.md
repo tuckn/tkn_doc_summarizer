@@ -194,13 +194,14 @@ items, and Technical terms to roughly 3–7 neutral, reusable definitions.
 5. Conclusion
 
 Frontmatter records `type: summary`, the local source URI, source SHA-256,
-generator/effective model, prompt ID/version/SHA-256, prompt envelope version,
-review state, dates, and stable note UUID. Classification metadata such as
-`nouns` is intentionally left to a separate CLI. The source body is not copied
-into the summary.
+generator/effective model, prompt ID/version/SHA-256, summary-profile and output
+schema hashes, template ID/version/hash, prompt envelope version, review state,
+dates, and stable note UUID. Classification metadata such as `nouns` is
+intentionally left to a separate CLI. The source body is not copied into the
+summary.
 
 `schemaVersion` and `promptVersion` are quoted YAML strings, for example
-`schemaVersion: "3.0"` and `promptVersion: "2.0"`. They are version identifiers,
+`schemaVersion: "4.0"` and `promptVersion: "2.0"`. They are version identifiers,
 not decimal quantities. Keeping them as strings preserves values such as
 `2.0`, `2.10`, or a future semantic version without YAML converting them to
 floating-point numbers.
@@ -267,6 +268,38 @@ nonzero.
   `max_input_bytes` are rejected.
 
 ## Development and verification
+
+### Summary profiles
+
+The resources that jointly define summary generation are bundled as one
+application-owned profile:
+
+```text
+src/doc_summarizer/summary_profiles/
+└── default/
+    ├── prompt.md
+    ├── output.schema.json
+    └── template.md
+```
+
+`prompt.md` defines the editorial policy and field meanings,
+`output.schema.json` is the structured JSON contract passed to Codex, and
+`template.md` defines the deterministic Markdown layout. The loader validates
+all three and computes a profile SHA-256 from their individual hashes. This
+profile hash participates in idempotency, so changing the schema or template
+cannot leave an older note incorrectly classified as current.
+`config show` reports the active profile and each resource's provenance.
+
+Custom prompts remain supported. They replace only `default/prompt.md` and are
+combined with the default schema and template into a separately fingerprinted
+profile. Additional application-maintained formats can be added later as
+sibling profile directories. Coordinate field changes across the prompt,
+schema, Pydantic models, renderer, validation, and tests; coordinate layout
+changes across the template, renderer, validation, and tests.
+
+Existing schema 2.0 and 3.0 notes remain accepted by `validate`. Because they
+predate the profile fingerprint, regenerating one is treated as a resource
+change and still requires explicit `--overwrite`.
 
 ```console
 uv sync --locked
