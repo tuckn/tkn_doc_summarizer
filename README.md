@@ -2,7 +2,7 @@
 
 [日本語](README_ja.md)
 
-`doc-summarizer` creates a source-faithful Markdown summary from a local text
+`tkn-doc-summarizer` creates a source-faithful Markdown summary from a local text
 document or an article previously saved as Markdown by a browser clipper. A URL
 input is a lookup key for a local clipped note; this application does not fetch
 the web page itself.
@@ -20,20 +20,42 @@ artifact created by `summarize` is the summary Markdown note.
 
 ## Install
 
-From the repository root:
+For normal use, install the CLI from any directory by specifying the repository
+path:
 
 ```console
-uv tool install -e .
-doc-summarizer --help
-doc-summarizer config show
+uv tool install "C:\path\to\tkn_doc_summarizer"
+tkn-doc-summarizer --help
+tkn-doc-summarizer config show
 ```
 
-Reinstall with `--force` after changing dependencies, package metadata, the CLI
-entry point, or the repository location:
+From the repository root, `uv tool install .` is equivalent.
+
+This normal installation captures the code, package resources, and dependencies
+at installation time. After updating the repository with `git pull` or another
+method, reinstall the tool to apply those changes:
 
 ```console
-uv tool install -e . --force
+uv tool install "C:\path\to\tkn_doc_summarizer" --reinstall
+tkn-doc-summarizer --help
+tkn-doc-summarizer config show
 ```
+
+Use `--force` only when the tool itself must be forcibly installed, such as when
+resolving an executable entry-point conflict.
+
+### Editable installation for development
+
+For development, use an editable installation when source changes should be
+reflected immediately:
+
+```console
+uv tool install -e "C:\path\to\tkn_doc_summarizer" --reinstall
+```
+
+Ordinary source-code changes do not require reinstalling an editable
+installation. Re-run the same command after changing dependencies, package
+metadata, or the CLI entry point, or after moving or renaming the repository.
 
 ## Initial configuration
 
@@ -62,19 +84,19 @@ directories while running `config show`.
 Summarize a clipped Markdown file:
 
 ```console
-doc-summarizer summarize "C:\path\to\clipped-article.md"
+tkn-doc-summarizer summarize "C:\path\to\clipped-article.md"
 ```
 
 Generate an English note for the same source with a one-run override:
 
 ```console
-doc-summarizer summarize "C:\path\to\clipped-article.md" --summary-profile default-en
+tkn-doc-summarizer summarize "C:\path\to\clipped-article.md" --summary-profile default-en
 ```
 
 Summarize the same local clip by its original URL:
 
 ```console
-doc-summarizer summarize "https://example.com/article"
+tkn-doc-summarizer summarize "https://example.com/article"
 ```
 
 The URL command recursively searches `source_roots`, parses Markdown
@@ -86,13 +108,13 @@ Preview source resolution and the output path without running Codex or writing
 anything:
 
 ```console
-doc-summarizer summarize "https://example.com/article" --dry-run
+tkn-doc-summarizer summarize "https://example.com/article" --dry-run
 ```
 
 Choose one exact output path:
 
 ```console
-doc-summarizer summarize "C:\path\to\facts.md" --output "C:\path\to\summary.md"
+tkn-doc-summarizer summarize "C:\path\to\facts.md" --output "C:\path\to\summary.md"
 ```
 
 ## Commands
@@ -130,7 +152,7 @@ Validates the output schema, Frontmatter order and provenance, section
 structure, review status, source file reference, and source SHA-256.
 
 ```console
-doc-summarizer validate "C:\path\to\summary.md"
+tkn-doc-summarizer validate "C:\path\to\summary.md"
 ```
 
 It is read-only. JSON reports `valid: true` on success; the process exits nonzero
@@ -142,7 +164,7 @@ Displays all resolved non-secret values, the configuration files read, the
 source of each setting, and built-in/custom prompt provenance.
 
 ```console
-doc-summarizer config show
+tkn-doc-summarizer config show
 ```
 
 It does not create application directories or invoke Codex.
@@ -154,8 +176,8 @@ Creates an editable copy of the built-in prompt under
 are never replaced, and the command does not change configuration.
 
 ```console
-doc-summarizer prompt init my-summary.md
-doc-summarizer prompt init my-english-summary.md --summary-profile default-en
+tkn-doc-summarizer prompt init my-summary.md
+tkn-doc-summarizer prompt init my-english-summary.md --summary-profile default-en
 ```
 
 Set `summary_prompt: my-summary.md` in configuration or pass

@@ -20,5 +20,5 @@ summary_profile: default-ja
 
 # null uses the selected profile's packaged prompt. A filename is resolved below
 # ~/.tkn/doc_summarizer/prompts/. Use an absolute path for other locations.
-# Create a custom prompt with: doc-summarizer prompt init
+# Create a custom prompt with: tkn-doc-summarizer prompt init
 summary_prompt: null

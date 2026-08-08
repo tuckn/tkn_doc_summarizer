@@ -90,7 +90,7 @@ def _configure_logging(args: argparse.Namespace) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="doc-summarizer",
+        prog="tkn-doc-summarizer",
         description=(
             "Create a Markdown summary from a local document. URL inputs locate an "
             "already-clipped Markdown file; the CLI does not fetch web pages."

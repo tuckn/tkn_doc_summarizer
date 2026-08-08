@@ -11,6 +11,7 @@ from doc_summarizer.cli import build_parser, main
 
 def test_help_names_url_behavior(capsys: object) -> None:
     parser = build_parser()
+    assert parser.prog == "tkn-doc-summarizer"
     assert "does not fetch web pages" in parser.description
 
 

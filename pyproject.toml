@@ -16,7 +16,7 @@ dependencies = [
 ]
 
 [project.scripts]
-doc-summarizer = "doc_summarizer.cli:main"
+tkn-doc-summarizer = "doc_summarizer.cli:main"
 
 [dependency-groups]
 dev = [

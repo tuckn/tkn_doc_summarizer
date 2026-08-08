@@ -2,7 +2,7 @@
 
 [English](README.md)
 
-`doc-summarizer` は、ローカルのテキスト文書、またはブラウザ拡張で事前に
+`tkn-doc-summarizer` は、ローカルのテキスト文書、またはブラウザ拡張で事前に
 Markdown保存したWeb記事から、ソースに忠実な要約Markdownノートを作るCLIです。
 URLはローカルにあるクリップ済みノートを特定する検索キーとして使い、このCLI自身は
 Webページを取得しません。
@@ -20,20 +20,41 @@ Webページを取得しません。
 
 ## インストール
 
-リポジトリルートで実行します。
+通常利用では、任意のdirectoryからリポジトリのpathを指定してインストールします。
 
 ```console
-uv tool install -e .
-doc-summarizer --help
-doc-summarizer config show
+uv tool install "C:\path\to\tkn_doc_summarizer"
+tkn-doc-summarizer --help
+tkn-doc-summarizer config show
 ```
 
-依存関係、package metadata、CLI entry point、リポジトリの場所を変更した場合は、
-再インストールします。
+リポジトリルートで実行する場合は、`uv tool install .` でも同じです。
+
+通常のインストールでは、インストール時点のcode、package resource、dependencyが
+tool環境へ反映されます。`git pull` などでリポジトリを更新した後は、更新内容を
+反映するため再インストールします。
 
 ```console
-uv tool install -e . --force
+uv tool install "C:\path\to\tkn_doc_summarizer" --reinstall
+tkn-doc-summarizer --help
+tkn-doc-summarizer config show
 ```
+
+`--force` は、実行ファイルのentry point競合を解消する場合など、tool自体の
+強制インストールが必要な場合に限って使用します。
+
+### 開発用のeditable installation
+
+開発時にsource codeの変更をすぐCLIへ反映したい場合は、editable installationを
+使用します。
+
+```console
+uv tool install -e "C:\path\to\tkn_doc_summarizer" --reinstall
+```
+
+editable installationでは、通常のsource code変更に再インストールは不要です。
+dependency、package metadata、CLI entry pointを変更した場合、またはリポジトリを
+移動・renameした場合は、同じcommandを再実行します。
 
 ## 初期設定
 
@@ -62,19 +83,19 @@ summary_profile: default-ja
 クリップ済みMarkdownをファイルパスで要約します。
 
 ```console
-doc-summarizer summarize "C:\path\to\clipped-article.md"
+tkn-doc-summarizer summarize "C:\path\to\clipped-article.md"
 ```
 
 同じsourceの英語版を、この実行だけprofileを上書きして生成できます。
 
 ```console
-doc-summarizer summarize "C:\path\to\clipped-article.md" --summary-profile default-en
+tkn-doc-summarizer summarize "C:\path\to\clipped-article.md" --summary-profile default-en
 ```
 
 同じローカルクリップを元記事URLで要約します。
 
 ```console
-doc-summarizer summarize "https://example.com/article"
+tkn-doc-summarizer summarize "https://example.com/article"
 ```
 
 URL入力では、`source_roots` 内を再帰検索し、Markdown Frontmatterの正規化済み
@@ -85,13 +106,13 @@ Clipperで完全なMarkdownを保存するか、ファイルパスを指定し�
 Codexを実行せず、ファイルも一切書かずに、入力と出力先だけ確認できます。
 
 ```console
-doc-summarizer summarize "https://example.com/article" --dry-run
+tkn-doc-summarizer summarize "https://example.com/article" --dry-run
 ```
 
 出力ファイルを明示することもできます。
 
 ```console
-doc-summarizer summarize "C:\path\to\facts.md" --output "C:\path\to\summary.md"
+tkn-doc-summarizer summarize "C:\path\to\facts.md" --output "C:\path\to\summary.md"
 ```
 
 ## コマンド
@@ -127,7 +148,7 @@ UTF-8のローカルソースを1件解決し、Codexへstructured JSON schema�
 source参照、source SHA-256をread-onlyで検証します。
 
 ```console
-doc-summarizer validate "C:\path\to\summary.md"
+tkn-doc-summarizer validate "C:\path\to\summary.md"
 ```
 
 成功時はJSONの `valid` が `true` になります。失敗時は非0で終了します。
@@ -139,7 +160,7 @@ built-in/custom promptのprovenanceを表示します。Codex実行やdirectory�
 行いません。
 
 ```console
-doc-summarizer config show
+tkn-doc-summarizer config show
 ```
 
 ### `prompt init [NAME]`
@@ -148,8 +169,8 @@ built-in promptの編集用コピーを `~/.tkn/doc_summarizer/prompts/` に作�
 コピーには新しいUUIDが付きます。既存ファイルは置換せず、設定も変更しません。
 
 ```console
-doc-summarizer prompt init my-summary.md
-doc-summarizer prompt init my-english-summary.md --summary-profile default-en
+tkn-doc-summarizer prompt init my-summary.md
+tkn-doc-summarizer prompt init my-english-summary.md --summary-profile default-en
 ```
 
 使用するには、設定へ `summary_prompt: my-summary.md` を追加するか、

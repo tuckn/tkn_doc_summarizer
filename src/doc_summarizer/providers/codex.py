@@ -64,7 +64,7 @@ class CodexProvider:
         provider_version = self.preflight()
         prompt_text = render_summary_prompt(self.prompt, request)
         schema = self.profile.schema.value
-        with tempfile.TemporaryDirectory(prefix="doc-summarizer-codex-") as temporary:
+        with tempfile.TemporaryDirectory(prefix="tkn-doc-summarizer-codex-") as temporary:
             schema_path = Path(temporary) / "summary.schema.json"
             output_path = Path(temporary) / "summary.json"
             schema_path.write_text(
