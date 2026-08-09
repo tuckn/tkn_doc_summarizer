@@ -80,6 +80,35 @@ def test_series_requires_two_cli_sources(tmp_path: Path, capsys: object) -> None
     assert "at least two sources" in captured.err
 
 
+def test_compare_dry_run_reports_compare_profile(tmp_path: Path, capsys: object) -> None:
+    first = tmp_path / "one.md"
+    second = tmp_path / "two.md"
+    first.write_text("# One\n\nShared idea.", encoding="utf-8")
+    second.write_text("# Two\n\nDifferent view.", encoding="utf-8")
+
+    code = main(
+        [
+            "synthesize",
+            str(first),
+            str(second),
+            "--mode",
+            "compare",
+            "--title",
+            "Article comparison",
+            "--output-root",
+            str(tmp_path / "output"),
+            "--dry-run",
+        ]
+    )
+
+    assert code == 0
+    captured = capsys.readouterr()  # type: ignore[attr-defined]
+    payload = json.loads(captured.out)
+    assert payload["details"]["synthesis_mode"] == "compare"
+    assert payload["details"]["summary_profile"] == "compare-ja"
+    assert not (tmp_path / "output").exists()
+
+
 def test_validate_invalid_note_returns_nonzero(
     tmp_path: Path,
     capsys: object,
@@ -121,6 +150,9 @@ def test_config_show_reports_summary_profile_resources(
     assert profile["source"].endswith("summary_profiles/default-ja")
     assert profile["output_schema"]["source"].endswith("output.schema.json")
     assert profile["template"]["source"].endswith("template.md")
+    comparison = payload["values"]["comparison_profile"]
+    assert comparison["name"] == "compare-ja"
+    assert comparison["source"].endswith("comparison_profiles/default-ja")
 
 
 def test_config_show_accepts_cli_summary_profile_override(

@@ -18,7 +18,7 @@ def test_built_in_prompt_is_packaged() -> None:
     assert prompt.source.endswith("summary_profiles/default-ja/prompt.md")
     assert len(prompt.sha256) == 64
     assert "Source fidelity" in prompt.instructions
-    assert prompt.version == "2.0"
+    assert prompt.version == "3.0"
     assert "roughly 250–400 characters" in prompt.instructions
     assert "Use `subsections` for" in prompt.instructions
 

@@ -1,7 +1,7 @@
 ---
 type: prompt
 id: 8551e4e5-3bab-4a18-8639-4a230c8d6476
-version: "1.0"
+version: "2.0"
 ---
 
 # English document summary instructions
@@ -48,6 +48,9 @@ conclusion without reading the original.
 
 ## Structured fields
 
+- `title`: a concise, specific English title derived from the complete content.
+  For a series, decide it after integrating all pages rather than copying the
+  first page title.
 - `description`: a concise standalone English description of the subject and
   main takeaway.
 - `summary`: one English paragraph of roughly 120–200 words when the source has

@@ -1,7 +1,7 @@
 ---
 type: prompt
 id: d5e2d465-88b1-4d32-8437-84787895ea48
-version: "2.0"
+version: "3.0"
 ---
 
 # Japanese document summary instructions
@@ -48,6 +48,8 @@ conclusion without reading the original.
 
 ## Structured fields
 
+- `title`: 内容全体を要約した、簡潔で具体的な日本語タイトル。seriesでは全ページの
+  統合内容を組み立てた後に決め、先頭ページのタイトルをそのまま流用しない。
 - `description`: a concise standalone Japanese description of the subject and
   main takeaway.
 - `summary`: one Japanese paragraph of roughly 250–400 characters when the

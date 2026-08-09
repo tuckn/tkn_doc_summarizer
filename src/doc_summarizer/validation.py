@@ -7,14 +7,16 @@ import uuid
 from pathlib import Path
 
 from doc_summarizer.io import sha256_bytes
+from doc_summarizer.models import ComparisonDocument
 from doc_summarizer.notes import (
+    COMPARISON_SUMMARY_SCHEMA_VERSION,
     REVIEW_STATUSES,
     SERIES_SUMMARY_SCHEMA_VERSION,
     SUMMARY_SCHEMA_VERSION,
     file_uri_to_path,
 )
-from doc_summarizer.series import metadata_source_set_sha256
 from doc_summarizer.source import split_frontmatter
+from doc_summarizer.synthesis import metadata_source_set_sha256
 
 LEGACY_SUMMARY_FRONTMATTER_ORDER = [
     "type",
@@ -46,7 +48,7 @@ SUMMARY_FRONTMATTER_ORDER = [
     "templateSha256",
     *LEGACY_SUMMARY_FRONTMATTER_ORDER[13:],
 ]
-SERIES_SUMMARY_FRONTMATTER_ORDER = [
+MULTI_SOURCE_FRONTMATTER_ORDER = [
     "type",
     "schemaVersion",
     "title",
@@ -81,6 +83,7 @@ SUPPORTED_SUMMARY_SCHEMA_VERSIONS = (
     "3.0",
     *PROFILED_SUMMARY_SCHEMA_VERSIONS,
     SERIES_SUMMARY_SCHEMA_VERSION,
+    COMPARISON_SUMMARY_SCHEMA_VERSION,
 )
 ENGLISH_HEADINGS = (
     "## 1. Summary",
@@ -95,6 +98,24 @@ JAPANESE_HEADINGS = (
     "## 3. 重要ポイント",
     "## 4. 専門用語",
     "## 5. 結論",
+)
+JAPANESE_COMPARISON_HEADINGS = (
+    "## 1. 比較要約",
+    "## 2. 共通概念",
+    "## 3. 観点別の捉え方",
+    "## 4. 相違・対立",
+    "## 5. 各ソース固有の知見",
+    "## 6. 専門用語",
+    "## 7. 結論",
+)
+ENGLISH_COMPARISON_HEADINGS = (
+    "## 1. Comparison summary",
+    "## 2. Common concepts",
+    "## 3. Perspectives",
+    "## 4. Differences and disagreements",
+    "## 5. Source-specific insights",
+    "## 6. Technical terms",
+    "## 7. Conclusion",
 )
 
 
@@ -129,6 +150,12 @@ def _section(body: str, heading: str, next_heading: str | None = None) -> str:
 
 
 def _summary_headings(metadata: dict[str, object], schema_version: str) -> tuple[str, ...]:
+    if schema_version == COMPARISON_SUMMARY_SCHEMA_VERSION:
+        return (
+            JAPANESE_COMPARISON_HEADINGS
+            if metadata.get("summaryProfile") == "compare-ja"
+            else ENGLISH_COMPARISON_HEADINGS
+        )
     if (
         schema_version in (SUMMARY_SCHEMA_VERSION, SERIES_SUMMARY_SCHEMA_VERSION)
         and metadata.get("summaryProfile") == "default-ja"
@@ -144,8 +171,8 @@ def validate_summary_text(text: str, *, verify_source: bool = True) -> list[str]
     except ValueError as exc:
         return [str(exc)]
     schema_version = str(metadata.get("schemaVersion"))
-    if schema_version == SERIES_SUMMARY_SCHEMA_VERSION:
-        expected_order = SERIES_SUMMARY_FRONTMATTER_ORDER
+    if schema_version in (SERIES_SUMMARY_SCHEMA_VERSION, COMPARISON_SUMMARY_SCHEMA_VERSION):
+        expected_order = MULTI_SOURCE_FRONTMATTER_ORDER
     elif schema_version in PROFILED_SUMMARY_SCHEMA_VERSIONS:
         expected_order = SUMMARY_FRONTMATTER_ORDER
     else:
@@ -176,13 +203,17 @@ def validate_summary_text(text: str, *, verify_source: bool = True) -> list[str]
     )
     source_required = (
         ("synthesisMode", "sourceSetId", "sourceSetSha256", "sources")
-        if schema_version == SERIES_SUMMARY_SCHEMA_VERSION
+        if schema_version in (SERIES_SUMMARY_SCHEMA_VERSION, COMPARISON_SUMMARY_SCHEMA_VERSION)
         else ("source", "sourceSha256")
     )
     for key in (*common_required, *source_required):
         if not metadata.get(key):
             errors.append(f"{key} must be non-empty")
-    if schema_version in (*PROFILED_SUMMARY_SCHEMA_VERSIONS, SERIES_SUMMARY_SCHEMA_VERSION):
+    if schema_version in (
+        *PROFILED_SUMMARY_SCHEMA_VERSIONS,
+        SERIES_SUMMARY_SCHEMA_VERSION,
+        COMPARISON_SUMMARY_SCHEMA_VERSION,
+    ):
         for key in (
             "summaryProfile",
             "summaryProfileSha256",
@@ -197,17 +228,27 @@ def validate_summary_text(text: str, *, verify_source: bool = True) -> list[str]
             errors.append("summaryProfile must use a lowercase kebab-case name")
     digest_keys = ["promptSha256"]
     digest_keys.append(
-        "sourceSetSha256" if schema_version == SERIES_SUMMARY_SCHEMA_VERSION else "sourceSha256"
+        "sourceSetSha256"
+        if schema_version in (SERIES_SUMMARY_SCHEMA_VERSION, COMPARISON_SUMMARY_SCHEMA_VERSION)
+        else "sourceSha256"
     )
-    if schema_version in (*PROFILED_SUMMARY_SCHEMA_VERSIONS, SERIES_SUMMARY_SCHEMA_VERSION):
+    if schema_version in (
+        *PROFILED_SUMMARY_SCHEMA_VERSIONS,
+        SERIES_SUMMARY_SCHEMA_VERSION,
+        COMPARISON_SUMMARY_SCHEMA_VERSION,
+    ):
         digest_keys.extend(["summaryProfileSha256", "outputSchemaSha256", "templateSha256"])
     for key in digest_keys:
         if not re.fullmatch(r"[0-9a-f]{64}", str(metadata.get(key) or "")):
             errors.append(f"{key} must be a lowercase SHA-256 digest")
     uuid_keys = ["promptId", "noteId"]
-    if schema_version in (*PROFILED_SUMMARY_SCHEMA_VERSIONS, SERIES_SUMMARY_SCHEMA_VERSION):
+    if schema_version in (
+        *PROFILED_SUMMARY_SCHEMA_VERSIONS,
+        SERIES_SUMMARY_SCHEMA_VERSION,
+        COMPARISON_SUMMARY_SCHEMA_VERSION,
+    ):
         uuid_keys.append("templateId")
-    if schema_version == SERIES_SUMMARY_SCHEMA_VERSION:
+    if schema_version in (SERIES_SUMMARY_SCHEMA_VERSION, COMPARISON_SUMMARY_SCHEMA_VERSION):
         uuid_keys.append("sourceSetId")
     for key in uuid_keys:
         try:
@@ -221,6 +262,7 @@ def validate_summary_text(text: str, *, verify_source: bool = True) -> list[str]
         "3.0",
         *PROFILED_SUMMARY_SCHEMA_VERSIONS,
         SERIES_SUMMARY_SCHEMA_VERSION,
+        COMPARISON_SUMMARY_SCHEMA_VERSION,
     ) and metadata.get("cover"):
         title_heading = f"# {metadata.get('title')}"
         cover_embed = f"![]({metadata.get('cover')})"
@@ -245,8 +287,10 @@ def validate_summary_text(text: str, *, verify_source: bool = True) -> list[str]
                 _section(body, heading, next_heading)
             except ValueError as exc:
                 errors.append(str(exc))
+    terms_index = 5 if schema_version == COMPARISON_SUMMARY_SCHEMA_VERSION else 3
     terms_match = re.search(
-        rf"(?ms)^{re.escape(headings[3])}\s*$\n(.*?)^{re.escape(headings[4])}\s*$",
+        rf"(?ms)^{re.escape(headings[terms_index])}\s*$\n"
+        rf"(.*?)^{re.escape(headings[terms_index + 1])}\s*$",
         body,
     )
     if terms_match:
@@ -257,9 +301,15 @@ def validate_summary_text(text: str, *, verify_source: bool = True) -> list[str]
             if not re.match(r"^\*\*.+?\*\*:\s+\S", term):
                 errors.append("technical terms must use '**term**: explanation' format")
                 break
-    if verify_source and schema_version == SERIES_SUMMARY_SCHEMA_VERSION:
-        if metadata.get("synthesisMode") != "series":
-            errors.append("synthesisMode must be 'series'")
+    if verify_source and schema_version in (
+        SERIES_SUMMARY_SCHEMA_VERSION,
+        COMPARISON_SUMMARY_SCHEMA_VERSION,
+    ):
+        expected_mode = (
+            "compare" if schema_version == COMPARISON_SUMMARY_SCHEMA_VERSION else "series"
+        )
+        if metadata.get("synthesisMode") != expected_mode:
+            errors.append(f"synthesisMode must be '{expected_mode}'")
         sources = metadata.get("sources")
         if not isinstance(sources, list) or len(sources) < 2:
             errors.append("sources must contain at least two source entries")
@@ -300,6 +350,42 @@ def validate_summary_text(text: str, *, verify_source: bool = True) -> list[str]
                 errors.append("sourceSha256 does not match the referenced source file")
         except (OSError, ValueError) as exc:
             errors.append(f"cannot validate source reference: {exc}")
+    return errors
+
+
+def validate_comparison_document(
+    document: ComparisonDocument,
+    *,
+    source_ids: set[str],
+) -> list[str]:
+    errors: list[str] = []
+
+    def check_ids(values: list[str], location: str, *, minimum_unique: int = 1) -> None:
+        unique = set(values)
+        unknown = sorted(unique - source_ids)
+        if unknown:
+            errors.append(f"{location} references unknown source ids: {', '.join(unknown)}")
+        if len(unique) < minimum_unique:
+            errors.append(f"{location} requires at least {minimum_unique} unique source ids")
+        if len(unique) != len(values):
+            errors.append(f"{location} contains duplicate source ids")
+
+    for index, concept in enumerate(document.common_concepts, start=1):
+        check_ids(concept.source_ids, f"common_concepts[{index}]", minimum_unique=2)
+    for index, perspective in enumerate(document.perspectives, start=1):
+        check_ids(perspective.source_ids, f"perspectives[{index}]")
+    for disagreement_index, disagreement in enumerate(document.disagreements, start=1):
+        for position_index, position in enumerate(disagreement.positions, start=1):
+            check_ids(
+                position.source_ids,
+                f"disagreements[{disagreement_index}].positions[{position_index}]",
+            )
+    for index, insight in enumerate(document.source_specific_insights, start=1):
+        if insight.source_id not in source_ids:
+            errors.append(
+                f"source_specific_insights[{index}] references unknown source id: "
+                f"{insight.source_id}"
+            )
     return errors
 
 

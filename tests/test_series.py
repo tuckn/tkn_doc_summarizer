@@ -10,7 +10,7 @@ from doc_summarizer.prompting import (
     load_summary_prompt,
     render_summary_prompt,
 )
-from doc_summarizer.series import resolve_series_sources
+from doc_summarizer.synthesis import resolve_synthesis_sources
 
 
 def test_series_preserves_cli_order_and_generates_stable_identity(tmp_path: Path) -> None:
@@ -19,15 +19,17 @@ def test_series_preserves_cli_order_and_generates_stable_identity(tmp_path: Path
     first.write_text("# One\n\nFirst.", encoding="utf-8")
     second.write_text("# Two\n\nSecond.", encoding="utf-8")
 
-    source_set = resolve_series_sources(
+    source_set = resolve_synthesis_sources(
         [str(first), str(second)],
+        mode="series",
         title="Complete article",
         source_roots=[],
         max_input_bytes=1_000,
         max_total_input_bytes=2_000,
     )
-    rerun = resolve_series_sources(
+    rerun = resolve_synthesis_sources(
         [str(first), str(second)],
+        mode="series",
         title="Complete article",
         source_roots=[],
         max_input_bytes=1_000,
@@ -43,8 +45,19 @@ def test_series_preserves_cli_order_and_generates_stable_identity(tmp_path: Path
     assert source_set.source_set_id == rerun.source_set_id
     assert len(source_set.source_set_sha256) == 64
 
-    reversed_set = resolve_series_sources(
+    differently_titled = resolve_synthesis_sources(
+        [str(first), str(second)],
+        mode="series",
+        title="A different output title",
+        source_roots=[],
+        max_input_bytes=1_000,
+        max_total_input_bytes=2_000,
+    )
+    assert differently_titled.source_set_sha256 == source_set.source_set_sha256
+
+    reversed_set = resolve_synthesis_sources(
         [str(second), str(first)],
+        mode="series",
         title="Complete article",
         source_roots=[],
         max_input_bytes=1_000,
@@ -52,9 +65,21 @@ def test_series_preserves_cli_order_and_generates_stable_identity(tmp_path: Path
     )
     assert reversed_set.source_set_id != source_set.source_set_id
 
-    second.write_text("# Two\n\nChanged second page.", encoding="utf-8")
-    changed = resolve_series_sources(
+    comparison_set = resolve_synthesis_sources(
         [str(first), str(second)],
+        mode="compare",
+        title="Complete article",
+        source_roots=[],
+        max_input_bytes=1_000,
+        max_total_input_bytes=2_000,
+    )
+    assert comparison_set.source_set_id != source_set.source_set_id
+    assert comparison_set.source_set_sha256 != source_set.source_set_sha256
+
+    second.write_text("# Two\n\nChanged second page.", encoding="utf-8")
+    changed = resolve_synthesis_sources(
+        [str(first), str(second)],
+        mode="series",
         title="Complete article",
         source_roots=[],
         max_input_bytes=1_000,
@@ -80,8 +105,9 @@ def test_series_defaults_to_first_source_title(tmp_path: Path) -> None:
     first.write_text("# Whole article\n\nFirst.", encoding="utf-8")
     second.write_text("# Part two\n\nSecond.", encoding="utf-8")
 
-    source_set = resolve_series_sources(
+    source_set = resolve_synthesis_sources(
         [str(first), str(second)],
+        mode="series",
         title=None,
         source_roots=[],
         max_input_bytes=1_000,
@@ -96,8 +122,9 @@ def test_series_requires_at_least_two_sources(tmp_path: Path) -> None:
     source.write_text("# One\n\nFirst.", encoding="utf-8")
 
     with pytest.raises(ValueError, match="at least two"):
-        resolve_series_sources(
+        resolve_synthesis_sources(
             [str(source)],
+            mode="series",
             title=None,
             source_roots=[],
             max_input_bytes=1_000,
@@ -110,8 +137,9 @@ def test_series_rejects_duplicate_local_source(tmp_path: Path) -> None:
     source.write_text("# One\n\nFirst.", encoding="utf-8")
 
     with pytest.raises(ValueError, match="same local source"):
-        resolve_series_sources(
+        resolve_synthesis_sources(
             [str(source), str(source)],
+            mode="series",
             title=None,
             source_roots=[],
             max_input_bytes=1_000,
@@ -126,8 +154,9 @@ def test_series_enforces_total_input_size(tmp_path: Path) -> None:
     second.write_text("y" * 20, encoding="utf-8")
 
     with pytest.raises(ValueError, match="max_total_input_bytes"):
-        resolve_series_sources(
+        resolve_synthesis_sources(
             [str(first), str(second)],
+            mode="series",
             title=None,
             source_roots=[],
             max_input_bytes=1_000,

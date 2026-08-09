@@ -36,7 +36,7 @@ class SeriesSource(StrictModel):
 class DocumentSourceSet(StrictModel):
     source_set_id: str
     title: str = Field(min_length=1)
-    mode: Literal["series"]
+    mode: Literal["series", "compare"]
     cover: str | None = None
     published: str | None = None
     sources: list[SeriesSource] = Field(min_length=2)
@@ -49,6 +49,56 @@ class SeriesSummaryRequest(StrictModel):
 
 
 SummaryGenerationRequest = SummaryRequest | SeriesSummaryRequest
+
+
+class ComparisonRequest(StrictModel):
+    source_set: DocumentSourceSet
+    prompt_envelope_version: str
+
+
+class ComparisonPoint(StrictModel):
+    text: str = Field(min_length=1)
+    source_ids: list[str] = Field(min_length=1)
+
+
+class CommonConcept(ComparisonPoint):
+    source_ids: list[str] = Field(min_length=2)
+
+
+class ComparisonPerspective(StrictModel):
+    heading: str = Field(min_length=1)
+    explanation: str = Field(min_length=1)
+    source_ids: list[str] = Field(min_length=1)
+
+
+class ComparisonPosition(StrictModel):
+    text: str = Field(min_length=1)
+    source_ids: list[str] = Field(min_length=1)
+
+
+class ComparisonDisagreement(StrictModel):
+    topic: str = Field(min_length=1)
+    positions: list[ComparisonPosition] = Field(min_length=2)
+
+
+class SourceSpecificInsight(StrictModel):
+    source_id: str = Field(min_length=1)
+    insight: str = Field(min_length=1)
+
+
+class ComparisonDocument(StrictModel):
+    title: str = Field(
+        min_length=1,
+        description="A concise title derived from the complete comparison",
+    )
+    description: str = Field(min_length=1)
+    summary: str = Field(min_length=1)
+    common_concepts: list[CommonConcept] = Field(min_length=1)
+    perspectives: list[ComparisonPerspective] = Field(min_length=1)
+    disagreements: list[ComparisonDisagreement]
+    source_specific_insights: list[SourceSpecificInsight]
+    technical_terms: list[str] = Field(min_length=1)
+    conclusion: str = Field(min_length=1)
 
 
 class SummarySubsection(StrictModel):
@@ -73,6 +123,10 @@ class SummarySection(StrictModel):
 
 
 class SummaryDocument(StrictModel):
+    title: str = Field(
+        min_length=1,
+        description="A concise title derived from the complete summarized content",
+    )
     description: str = Field(min_length=1)
     summary: str = Field(
         min_length=1,

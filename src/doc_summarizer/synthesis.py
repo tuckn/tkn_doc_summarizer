@@ -1,20 +1,22 @@
-"""Resolve ordered CLI sources into one logical series document."""
+"""Resolve ordered CLI sources into one multi-source synthesis input."""
 
 from __future__ import annotations
 
 import json
 import uuid
 from pathlib import Path
+from typing import Literal
 
 from doc_summarizer.io import sha256_bytes
 from doc_summarizer.models import DocumentSourceSet, SeriesSource
 from doc_summarizer.source import resolve_source
 
+SynthesisMode = Literal["series", "compare"]
+
 
 def source_set_identity_payload(source_set: DocumentSourceSet) -> dict[str, object]:
     return {
         "sourceSetId": source_set.source_set_id,
-        "title": source_set.title,
         "mode": source_set.mode,
         "cover": source_set.cover,
         "published": source_set.published,
@@ -42,7 +44,6 @@ def source_set_sha256(source_set: DocumentSourceSet) -> str:
 def metadata_source_set_sha256(metadata: dict[str, object]) -> str:
     identity = {
         "sourceSetId": str(metadata.get("sourceSetId") or ""),
-        "title": str(metadata.get("title") or ""),
         "mode": str(metadata.get("synthesisMode") or ""),
         "cover": metadata.get("cover"),
         "published": metadata.get("sourceSetPublished"),
@@ -57,25 +58,27 @@ def metadata_source_set_sha256(metadata: dict[str, object]) -> str:
     return sha256_bytes(payload)
 
 
-def _series_id(sources: list[SeriesSource]) -> str:
+def _source_set_id(sources: list[SeriesSource], mode: SynthesisMode) -> str:
     ordered_references = json.dumps(
         [entry.document.path.absolute().as_uri() for entry in sources],
         ensure_ascii=False,
         separators=(",", ":"),
     )
-    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"tkn-doc-summarizer:series:{ordered_references}"))
+    name = f"tkn-doc-summarizer:{mode}:{ordered_references}"
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, name))
 
 
-def resolve_series_sources(
+def resolve_synthesis_sources(
     source_values: list[str],
     *,
+    mode: SynthesisMode,
     title: str | None,
     source_roots: list[Path],
     max_input_bytes: int,
     max_total_input_bytes: int,
 ) -> DocumentSourceSet:
     if len(source_values) < 2:
-        raise ValueError("series synthesis requires at least two sources")
+        raise ValueError(f"{mode} synthesis requires at least two sources")
     resolved: list[SeriesSource] = []
     seen_paths: dict[str, str] = {}
     total_bytes = 0
@@ -89,23 +92,23 @@ def resolve_series_sources(
         key = str(document.path.resolve()).casefold()
         if key in seen_paths:
             raise ValueError(
-                "series resolves the same local source more than once: "
+                f"{mode} resolves the same local source more than once: "
                 f"{seen_paths[key]}, {source_id}: {document.path}"
             )
         seen_paths[key] = source_id
         total_bytes += document.source_size_bytes
         if total_bytes > max_total_input_bytes:
             raise ValueError(
-                f"series exceeds max_total_input_bytes ({total_bytes} > {max_total_input_bytes})"
+                f"{mode} exceeds max_total_input_bytes ({total_bytes} > {max_total_input_bytes})"
             )
         resolved.append(SeriesSource(id=source_id, document=document))
     effective_title = title.strip() if title is not None else resolved[0].document.title
     if not effective_title:
         raise ValueError("--title must not be empty")
     source_set = DocumentSourceSet(
-        source_set_id=_series_id(resolved),
+        source_set_id=_source_set_id(resolved, mode),
         title=effective_title,
-        mode="series",
+        mode=mode,
         cover=resolved[0].document.cover,
         published=resolved[0].document.published,
         sources=resolved,

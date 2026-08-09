@@ -12,6 +12,7 @@ from typing import Any
 from doc_summarizer.config import AppConfig
 from doc_summarizer.io import atomic_write
 from doc_summarizer.models import (
+    ComparisonRequest,
     DocumentSource,
     DocumentSourceSet,
     SeriesSummaryRequest,
@@ -23,16 +24,41 @@ from doc_summarizer.notes import (
     REVIEW_STATUSES,
     frontmatter_datetime,
     path_to_file_uri,
+    render_comparison_summary,
     render_series_summary,
     render_summary,
 )
-from doc_summarizer.prompting import PROMPT_ENVELOPE_VERSION, SERIES_PROMPT_ENVELOPE_VERSION
-from doc_summarizer.providers import CodexProvider, SummaryProvider
-from doc_summarizer.series import resolve_series_sources
+from doc_summarizer.prompting import (
+    COMPARISON_PROMPT_ENVELOPE_VERSION,
+    PROMPT_ENVELOPE_VERSION,
+    SERIES_PROMPT_ENVELOPE_VERSION,
+)
+from doc_summarizer.providers import (
+    CodexComparisonProvider,
+    CodexProvider,
+    ComparisonProvider,
+    SummaryProvider,
+)
 from doc_summarizer.source import resolve_source, split_frontmatter
-from doc_summarizer.validation import validate_summary, validate_summary_text
+from doc_summarizer.synthesis import resolve_synthesis_sources, source_set_sha256
+from doc_summarizer.validation import (
+    validate_comparison_document,
+    validate_summary,
+    validate_summary_text,
+)
 
 logger = logging.getLogger(__name__)
+
+
+def _source_set_with_title(
+    source_set: DocumentSourceSet,
+    title: str,
+) -> DocumentSourceSet:
+    clean_title = title.strip()
+    if not clean_title:
+        raise ValueError("generated synthesis title must not be empty")
+    titled = source_set.model_copy(update={"title": clean_title})
+    return titled.model_copy(update={"source_set_sha256": source_set_sha256(titled)})
 
 
 def provider_for_config(config: AppConfig) -> SummaryProvider:
@@ -44,6 +70,19 @@ def provider_for_config(config: AppConfig) -> SummaryProvider:
         timeout_seconds=config.codex_timeout_seconds,
         summary_profile=config.summary_profile,
         summary_prompt=config.summary_prompt,
+    )
+
+
+def comparison_provider_for_config(config: AppConfig) -> ComparisonProvider:
+    if config.provider != "codex":
+        raise ValueError(f"unsupported provider: {config.provider}")
+    if config.summary_prompt is not None:
+        raise ValueError("--summary-prompt is not supported with --mode compare")
+    return CodexComparisonProvider(
+        executable=config.codex_executable,
+        model=config.model,
+        timeout_seconds=config.codex_timeout_seconds,
+        summary_profile=config.summary_profile,
     )
 
 
@@ -482,7 +521,8 @@ def _is_current_series(
     generator = str(metadata.get("generator") or "")
     model_matches = requested_model is None or generator == f"Codex ({requested_model})"
     return (
-        metadata.get("sourceSetSha256") == source_set.source_set_sha256
+        str(metadata.get("title") or "") == source_set.title
+        and metadata.get("sourceSetSha256") == source_set.source_set_sha256
         and str(metadata.get("promptVersion") or "") == prompt_version
         and metadata.get("promptSha256") == prompt_sha256
         and metadata.get("summaryProfileSha256") == profile_sha256
@@ -496,6 +536,7 @@ def _series_details(
     provider: SummaryProvider,
     *,
     dry_run: bool,
+    generated_title_pending: bool = False,
 ) -> dict[str, object]:
     prompt = provider.prompt
     profile = provider.profile
@@ -506,6 +547,8 @@ def _series_details(
         "source_set_sha256": source_set.source_set_sha256,
         "source_count": len(source_set.sources),
         "source_paths": [str(entry.document.path) for entry in source_set.sources],
+        "title": source_set.title,
+        "generated_title_pending": generated_title_pending,
         "prompt_id": prompt.prompt_id,
         "prompt_version": prompt.version,
         "prompt_sha256": prompt.sha256,
@@ -525,8 +568,9 @@ def _synthesize_series(
     overwrite: bool,
     dry_run: bool,
 ) -> SummaryResult:
-    source_set = resolve_series_sources(
+    source_set = resolve_synthesis_sources(
         source_values,
+        mode="series",
         title=title,
         source_roots=config.source_roots,
         max_input_bytes=config.max_input_bytes,
@@ -534,9 +578,22 @@ def _synthesize_series(
     )
     prompt = provider.prompt
     profile = provider.profile
+    automatic_existing = (
+        _find_existing_series(
+            config.output_root,
+            source_set_id=source_set.source_set_id,
+            profile_name=profile.name,
+            prompt_id=prompt.prompt_id,
+        )
+        if explicit_output is None
+        else None
+    )
+    generated_target_pending = (
+        title is None and explicit_output is None and automatic_existing is None
+    )
     target = _series_target_path(source_set, config, provider, explicit_output)
     existing_metadata: dict[str, Any] | None = None
-    if target.exists():
+    if target.exists() and not generated_target_pending:
         existing_metadata = _candidate_metadata(target)
         if existing_metadata is None:
             raise FileExistsError(f"existing output is not a readable generated summary: {target}")
@@ -547,6 +604,11 @@ def _synthesize_series(
             prompt_id=prompt.prompt_id,
             target=target,
         )
+        if title is None:
+            stored_title = str(existing_metadata.get("title") or "").strip()
+            if not stored_title:
+                raise RuntimeError(f"existing series summary has no usable title: {target}")
+            source_set = _source_set_with_title(source_set, stored_title)
         existing_errors = validate_summary(target)
         current = _is_current_series(
             existing_metadata,
@@ -583,7 +645,12 @@ def _synthesize_series(
     if dry_run:
         action = "updated" if target.exists() else "created"
         logger.info("Dry run: series summary would be %s at %s", action, target)
-        details = _series_details(source_set, provider, dry_run=True)
+        details = _series_details(
+            source_set,
+            provider,
+            dry_run=True,
+            generated_title_pending=generated_target_pending,
+        )
         details["planned_status"] = action
         return SummaryResult(
             path=target,
@@ -606,6 +673,15 @@ def _synthesize_series(
         or generated.prompt_envelope_version != SERIES_PROMPT_ENVELOPE_VERSION
     ):
         raise RuntimeError("provider returned prompt provenance that does not match the request")
+    if title is None:
+        source_set = _source_set_with_title(source_set, generated.document.title)
+        if generated_target_pending:
+            target = _series_target_path(source_set, config, provider, explicit_output=None)
+            if target.exists():
+                raise FileExistsError(
+                    "generated title resolves to an existing output that belongs to another "
+                    f"summary: {target}"
+                )
     now = datetime.now().astimezone()
     note_id = (
         str(existing_metadata.get("noteId"))
@@ -676,6 +752,366 @@ def synthesize_series(
     active_provider = provider or provider_for_config(config)
     try:
         result = _synthesize_series(
+            source_values,
+            config,
+            title=title,
+            provider=active_provider,
+            explicit_output=explicit_output,
+            overwrite=overwrite,
+            dry_run=dry_run,
+        )
+    except Exception as exc:
+        if dry_run:
+            raise
+        report = _write_report(
+            config,
+            started_at=started_at,
+            status="failure",
+            error=str(exc),
+            command="synthesize",
+        )
+        raise RuntimeError(f"{exc}; report={report}") from exc
+    if dry_run:
+        return result
+    report = _write_report(
+        config,
+        started_at=started_at,
+        status="success",
+        result=result,
+        command="synthesize",
+    )
+    return result.model_copy(update={"report_path": report})
+
+
+def _find_existing_comparison(
+    output_root: Path,
+    *,
+    source_set_id: str,
+    profile_name: str,
+    prompt_id: str,
+) -> Path | None:
+    if not output_root.is_dir():
+        return None
+    matches: list[Path] = []
+    for candidate in output_root.rglob("*.md"):
+        metadata = _candidate_metadata(candidate)
+        if metadata is None:
+            continue
+        if (
+            metadata.get("synthesisMode") == "compare"
+            and str(metadata.get("sourceSetId") or "") == source_set_id
+            and str(metadata.get("summaryProfile") or "") == profile_name
+            and str(metadata.get("promptId") or "") == prompt_id
+        ):
+            matches.append(candidate)
+    if len(matches) > 1:
+        raise FileExistsError(
+            "multiple comparisons share the same sourceSetId, summaryProfile, and promptId: "
+            + ", ".join(str(path) for path in sorted(matches))
+        )
+    return matches[0] if matches else None
+
+
+def _comparison_target_path(
+    source_set: DocumentSourceSet,
+    config: AppConfig,
+    provider: ComparisonProvider,
+    explicit_output: Path | None,
+) -> Path:
+    if explicit_output is not None:
+        target = explicit_output.expanduser()
+        target = target if target.is_absolute() else (Path.cwd() / target).resolve()
+        if target.suffix.lower() != ".md":
+            raise ValueError("--output must use the .md extension")
+        return target
+    existing = _find_existing_comparison(
+        config.output_root,
+        source_set_id=source_set.source_set_id,
+        profile_name=provider.profile.name,
+        prompt_id=provider.prompt.prompt_id,
+    )
+    if existing:
+        return existing
+    return build_output_path(
+        config.output_root,
+        source_path=source_set.sources[0].document.path,
+        published=source_set.published,
+        title=source_set.title,
+        profile_name=provider.profile.name,
+        prompt_id=provider.prompt.prompt_id,
+        identity_suffix=uuid.UUID(source_set.source_set_id).hex[:8],
+    )
+
+
+def _validate_existing_comparison_identity(
+    metadata: dict[str, Any],
+    *,
+    source_set_id: str,
+    profile_name: str,
+    prompt_id: str,
+    target: Path,
+) -> None:
+    if (
+        metadata.get("synthesisMode") != "compare"
+        or str(metadata.get("sourceSetId") or "") != source_set_id
+        or str(metadata.get("summaryProfile") or "") != profile_name
+        or str(metadata.get("promptId") or "") != prompt_id
+    ):
+        raise FileExistsError(
+            "refusing to replace an output that belongs to another source set, "
+            f"synthesis mode, summary profile, or prompt: {target}"
+        )
+
+
+def _is_current_comparison(
+    metadata: dict[str, Any],
+    *,
+    source_set: DocumentSourceSet,
+    prompt_version: str,
+    prompt_sha256: str,
+    profile_sha256: str,
+    requested_model: str | None,
+) -> bool:
+    generator = str(metadata.get("generator") or "")
+    model_matches = requested_model is None or generator == f"Codex ({requested_model})"
+    return (
+        str(metadata.get("title") or "") == source_set.title
+        and metadata.get("sourceSetSha256") == source_set.source_set_sha256
+        and str(metadata.get("promptVersion") or "") == prompt_version
+        and metadata.get("promptSha256") == prompt_sha256
+        and metadata.get("summaryProfileSha256") == profile_sha256
+        and metadata.get("promptEnvelopeVersion") == COMPARISON_PROMPT_ENVELOPE_VERSION
+        and model_matches
+    )
+
+
+def _comparison_details(
+    source_set: DocumentSourceSet,
+    provider: ComparisonProvider,
+    *,
+    dry_run: bool,
+    generated_title_pending: bool = False,
+) -> dict[str, object]:
+    return {
+        "validated": not dry_run,
+        "synthesis_mode": "compare",
+        "source_set_id": source_set.source_set_id,
+        "source_set_sha256": source_set.source_set_sha256,
+        "source_count": len(source_set.sources),
+        "source_paths": [str(entry.document.path) for entry in source_set.sources],
+        "title": source_set.title,
+        "generated_title_pending": generated_title_pending,
+        "prompt_id": provider.prompt.prompt_id,
+        "prompt_version": provider.prompt.version,
+        "prompt_sha256": provider.prompt.sha256,
+        "summary_profile": provider.profile.name,
+        "summary_profile_sha256": provider.profile.sha256,
+        "dry_run": dry_run,
+    }
+
+
+def _synthesize_compare(
+    source_values: list[str],
+    config: AppConfig,
+    *,
+    title: str | None,
+    provider: ComparisonProvider,
+    explicit_output: Path | None,
+    overwrite: bool,
+    dry_run: bool,
+) -> SummaryResult:
+    source_set = resolve_synthesis_sources(
+        source_values,
+        mode="compare",
+        title=title,
+        source_roots=config.source_roots,
+        max_input_bytes=config.max_input_bytes,
+        max_total_input_bytes=config.max_total_input_bytes,
+    )
+    prompt = provider.prompt
+    profile = provider.profile
+    automatic_existing = (
+        _find_existing_comparison(
+            config.output_root,
+            source_set_id=source_set.source_set_id,
+            profile_name=profile.name,
+            prompt_id=prompt.prompt_id,
+        )
+        if explicit_output is None
+        else None
+    )
+    generated_target_pending = (
+        title is None and explicit_output is None and automatic_existing is None
+    )
+    target = _comparison_target_path(source_set, config, provider, explicit_output)
+    existing_metadata: dict[str, Any] | None = None
+    if target.exists() and not generated_target_pending:
+        existing_metadata = _candidate_metadata(target)
+        if existing_metadata is None:
+            raise FileExistsError(f"existing output is not a readable generated summary: {target}")
+        _validate_existing_comparison_identity(
+            existing_metadata,
+            source_set_id=source_set.source_set_id,
+            profile_name=profile.name,
+            prompt_id=prompt.prompt_id,
+            target=target,
+        )
+        if title is None:
+            stored_title = str(existing_metadata.get("title") or "").strip()
+            if not stored_title:
+                raise RuntimeError(f"existing comparison has no usable title: {target}")
+            source_set = _source_set_with_title(source_set, stored_title)
+        existing_errors = validate_summary(target)
+        current = _is_current_comparison(
+            existing_metadata,
+            source_set=source_set,
+            prompt_version=prompt.version,
+            prompt_sha256=prompt.sha256,
+            profile_sha256=profile.sha256,
+            requested_model=config.model,
+        )
+        if current and not existing_errors and not overwrite:
+            logger.info("Comparison note is already current: %s", target)
+            return SummaryResult(
+                path=target,
+                source_path=source_set.sources[0].document.path,
+                status="unchanged",
+                details=_comparison_details(source_set, provider, dry_run=dry_run),
+            )
+        if not overwrite:
+            reason = (
+                "; ".join(existing_errors)
+                if existing_errors
+                else "source set, comparison profile, or explicitly selected model changed"
+            )
+            raise FileExistsError(
+                f"existing comparison requires explicit --overwrite ({reason}): {target}"
+            )
+        review_status = str(existing_metadata.get("reviewStatus") or "")
+        if review_status in REVIEW_STATUSES and review_status != "unreviewed":
+            logger.warning(
+                "Overwriting a %s summary resets reviewStatus to unreviewed: %s",
+                review_status,
+                target,
+            )
+    if dry_run:
+        action = "updated" if target.exists() else "created"
+        logger.info("Dry run: comparison would be %s at %s", action, target)
+        details = _comparison_details(
+            source_set,
+            provider,
+            dry_run=True,
+            generated_title_pending=generated_target_pending,
+        )
+        details["planned_status"] = action
+        return SummaryResult(
+            path=target,
+            source_path=source_set.sources[0].document.path,
+            status="planned",
+            details=details,
+        )
+    request = ComparisonRequest(
+        source_set=source_set,
+        prompt_envelope_version=COMPARISON_PROMPT_ENVELOPE_VERSION,
+    )
+    logger.info("Comparing %d sources", len(source_set.sources))
+    generated = provider.generate(request)
+    if (
+        generated.prompt_id != prompt.prompt_id
+        or generated.prompt_version != prompt.version
+        or generated.prompt_sha256 != prompt.sha256
+        or generated.prompt_envelope_version != COMPARISON_PROMPT_ENVELOPE_VERSION
+    ):
+        raise RuntimeError(
+            "provider returned comparison provenance that does not match the request"
+        )
+    if title is None:
+        source_set = _source_set_with_title(source_set, generated.document.title)
+        if generated_target_pending:
+            target = _comparison_target_path(source_set, config, provider, explicit_output=None)
+            if target.exists():
+                raise FileExistsError(
+                    "generated title resolves to an existing output that belongs to another "
+                    f"comparison: {target}"
+                )
+    document_errors = validate_comparison_document(
+        generated.document,
+        source_ids={entry.id for entry in source_set.sources},
+    )
+    if document_errors:
+        raise RuntimeError(
+            "generated comparison source validation failed: " + "; ".join(document_errors)
+        )
+    now = datetime.now().astimezone()
+    note_id = (
+        str(existing_metadata.get("noteId"))
+        if existing_metadata and existing_metadata.get("noteId")
+        else None
+    )
+    created_at = (
+        frontmatter_datetime(existing_metadata["date"])
+        if existing_metadata and existing_metadata.get("date")
+        else None
+    )
+    text = render_comparison_summary(
+        source_set=source_set,
+        document=generated.document,
+        now=now,
+        generator=generated.generator,
+        profile=profile,
+        prompt_envelope_version=COMPARISON_PROMPT_ENVELOPE_VERSION,
+        note_id=note_id,
+        created_at=created_at,
+    )
+    errors = validate_summary_text(text)
+    if errors:
+        raise RuntimeError("generated comparison validation failed: " + "; ".join(errors))
+    status = atomic_write(target, text, overwrite=overwrite)
+    persisted_errors = validate_summary(target)
+    if persisted_errors:
+        raise RuntimeError("persisted comparison validation failed: " + "; ".join(persisted_errors))
+    logger.info("Comparison note %s: %s", status, target)
+    details = _comparison_details(source_set, provider, dry_run=False)
+    details.update(
+        {
+            "provider": generated.provider,
+            "model": generated.model,
+            "provider_version": generated.provider_version,
+            "prompt_envelope_version": COMPARISON_PROMPT_ENVELOPE_VERSION,
+            "prompt_source": prompt.source,
+            "summary_profile_source": profile.source,
+            "output_schema_source": profile.schema.source,
+            "output_schema_sha256": profile.schema.sha256,
+            "template_id": profile.template.template_id,
+            "template_version": profile.template.version,
+            "template_source": profile.template.source,
+            "template_sha256": profile.template.sha256,
+        }
+    )
+    return SummaryResult(
+        path=target,
+        source_path=source_set.sources[0].document.path,
+        status=status,
+        details=details,
+    )
+
+
+def synthesize_compare(
+    source_values: list[str],
+    config: AppConfig,
+    *,
+    title: str | None = None,
+    explicit_output: Path | None = None,
+    overwrite: bool = False,
+    dry_run: bool = False,
+    provider: ComparisonProvider | None = None,
+) -> SummaryResult:
+    started_at = datetime.now().astimezone()
+    if config.summary_prompt is not None:
+        raise ValueError("--summary-prompt is not supported with --mode compare")
+    active_provider = provider or comparison_provider_for_config(config)
+    try:
+        result = _synthesize_compare(
             source_values,
             config,
             title=title,

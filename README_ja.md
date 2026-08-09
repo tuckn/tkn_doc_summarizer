@@ -80,6 +80,8 @@ summary_profile: default-ja
 
 ## 基本的な使い方
 
+### `summarize`
+
 クリップ済みMarkdownをファイルパスで要約します。
 
 ```console
@@ -115,15 +117,25 @@ tkn-doc-summarizer summarize "https://example.com/article" --dry-run
 tkn-doc-summarizer summarize "C:\path\to\facts.md" --output "C:\path\to\summary.md"
 ```
 
+### `synthesize`
+
 複数ページを1つの論理的な記事として要約するには、ページ順にsourceを列挙します。
 
 ```console
-tkn-doc-summarizer synthesize "C:\path\to\page-1.md" "C:\path\to\page-2.md" --title "完全版Example記事" --dry-run
-tkn-doc-summarizer synthesize "C:\path\to\page-1.md" "C:\path\to\page-2.md" --title "完全版Example記事"
+tkn-doc-summarizer synthesize "C:\path\to\page-1.md" "C:\path\to\page-2.md" --dry-run
+tkn-doc-summarizer synthesize "C:\path\to\page-1.md" "C:\path\to\page-2.md"
 ```
 
 各sourceにはローカルpath、または `source_roots` からローカル解決できるクリップ済み
-記事URLを指定できます。`--title` は省略可能で、省略時は先頭sourceのタイトルを使います。
+記事URLを指定できます。`--title` を省略すると、全sourceから統合内容を生成した後、
+その内容を表すタイトルも生成AIが決めます。
+
+複数の記事を比較し、共通概念、異なる観点、相反する意見をまとめる場合は
+`--mode compare` を指定します。
+
+```console
+tkn-doc-summarizer synthesize "C:\path\to\article-a.md" "C:\path\to\article-b.md" --mode compare
+```
 
 ## コマンド
 
@@ -154,19 +166,31 @@ UTF-8のローカルソースを1件解決し、Codexへstructured JSON schema�
 
 ### `synthesize SOURCE SOURCE [...]`
 
-2件以上のsourceをページ順に列挙し、全ページから統合したseries要約を1つ作ります。
-ページ順はCLI引数の順序そのものであり、ファイル名やURLから推測しません。重複する
-ページ共通部分を除外しながら、ページをまたぐ論旨や後半の留保条件を保持します。
-source IDは `S1`、`S2`…として自動付与します。
+2件以上のsourceから1つの統合ノートを作ります。`--mode series` が既定値で、
+ページ順に列挙した1つの記事を統合します。ページ順はCLI引数の順序そのものであり、
+ファイル名やURLから推測しません。重複するページ共通部分を除外しながら、ページを
+またぐ論旨や後半の留保条件を保持します。
+
+`--mode compare` は、別々の記事を比較し、比較要約、共通概念、観点別の捉え方、
+相違・対立、各source固有の知見、専門用語、結論を生成します。各主張には
+`[S1, S2]` のようなsource IDを付け、根拠を追跡できます。CLI引数の順序はsource IDを
+決めるだけで、権威、優先順位、時系列を意味しません。実際の対立がない場合は無理に
+対立を作りません。source IDは両modeとも `S1`、`S2`…として自動付与します。
 
 `--dry-run`、`--output`、`--output-root`、`--source-root`、
-`--summary-profile`、`--summary-prompt`、`--model`、`--overwrite` は
-`summarize` と同じwrite safety契約です。raw input合計には
+`--summary-profile`、`--model`、`--overwrite` は `summarize` と同じwrite safety契約です。
+`--summary-prompt` はseriesでのみ使用でき、compareでは比較prompt、schema、templateの
+整合性を保つため拒否します。raw input合計には
 `max_total_input_bytes` が適用され、同じローカルファイルへ解決される重複entryは
-拒否します。`--title TITLE` で記事全体のタイトルを指定でき、省略時は先頭sourceの
-タイトルを使います。
+拒否します。`--title TITLE` は生成タイトルを使わず、明示したタイトルをそのまま
+Frontmatter、H1、自動ファイル名へ使用するoverrideです。省略時は、seriesでは全ページの
+統合内容、compareでは比較結果全体を踏まえ、生成AIがタイトルを生成します。
 
-生成するschema 6.0 Frontmatterには、自動生成した安定source-set UUID、mode、
+タイトル未指定の `--dry-run` は生成AIを呼ばないため、返されるpathは先頭sourceタイトルを
+使った暫定値です。JSONの `generated_title_pending` が `true` になり、実生成時のpathは
+生成タイトルに応じて確定します。
+
+seriesはschema 6.0、compareはschema 7.0を生成します。Frontmatterには、自動生成した安定source-set UUID、mode、
 順序付きローカルsource URI、各source SHA-256、正規化した `sourceSetSha256` を
 記録します。UUIDは順序付きの解決後ローカルURIから生成し、内容変更は
 `sourceSetSha256` で検出します。source変更後は明示的な `--overwrite` が必要で、
@@ -175,8 +199,8 @@ source IDは `S1`、`S2`…として自動付与します。
 ### `validate PATH`
 
 出力schema、Frontmatterの順序とprovenance、本文section、review状態、単一source、
-またはseriesの全順序付きsourceと各SHA-256をread-onlyで検証します。seriesでは
-`sourceSetSha256` も再計算します。
+またはseries/compareの全順序付きsourceと各SHA-256をread-onlyで検証します。
+複数sourceでは `sourceSetSha256` も再計算します。
 
 ```console
 tkn-doc-summarizer validate "C:\path\to\summary.md"
@@ -187,7 +211,7 @@ tkn-doc-summarizer validate "C:\path\to\summary.md"
 ### `config show`
 
 解決後の非secret設定、読み込んだ設定ファイル、各値の決定元、
-built-in/custom promptのprovenanceを表示します。Codex実行やdirectory作成は
+built-in/custom promptとcomparison profileのprovenanceを表示します。Codex実行やdirectory作成は
 行いません。
 
 ```console
@@ -256,7 +280,7 @@ SHA-256、template ID/version/SHA-256、prompt envelope version、review状態�
 登録しません。source本文は要約ノートへ複製しません。
 
 `schemaVersion` と `promptVersion` は、`schemaVersion: "5.0"`、
-`promptVersion: "2.0"` のようなYAML文字列として出力します。これらは小数値ではなく
+`promptVersion: "3.0"` のようなYAML文字列として出力します。これらは小数値ではなく
 version識別子です。文字列にすることで、`2.0`、`2.10`、将来のsemantic versionを
 YAMLの浮動小数点数へ変換させず、そのまま保持できます。
 
@@ -319,12 +343,22 @@ collision、validationの失敗は非0です。
 
 ## 開発と検証
 
-### Summary profile
+### Summary / comparison profile
 
 要約生成を一体として定義するresourceは、application-owned profileとしてまとめています。
 
 ```text
 src/doc_summarizer/summary_profiles/
+├── default-ja/
+│   ├── prompt.md
+│   ├── output.schema.json
+│   └── template.md
+└── default-en/
+    ├── prompt.md
+    ├── output.schema.json
+    └── template.md
+
+src/doc_summarizer/comparison_profiles/
 ├── default-ja/
 │   ├── prompt.md
 │   ├── output.schema.json
@@ -342,13 +376,16 @@ templateを変更したのに旧ノートを最新と誤判定することはあ
 `config show` ではactive profileと各resourceのprovenanceを確認できます。
 
 YAMLの `summary_profile` またはCLIの `--summary-profile` でprofileを選び、CLI指定が通常どおり
-最優先になります。カスタムpromptは選択profileの `prompt.md` だけを置換し、そのprofileの
-schema/templateと組み合わせた別のprofileとしてfingerprintを計算します。
+最優先になります。この言語選択はcompare profileにも適用されます。カスタムpromptは
+summarize/seriesでは選択profileの `prompt.md` だけを置換し、そのprofileのschema/templateと
+組み合わせた別のprofileとしてfingerprintを計算します。compare profileはapplication-ownedの
+一体的な比較契約として扱い、カスタムpromptは受け付けません。
 field変更時はprompt、schema、Pydantic model、renderer、validation、testを、配置変更時は
 template、renderer、validation、testを協調して更新してください。
 
-既存schema 2.0〜4.0 noteは引き続き `validate` できます。新しいprofile付きファイル名と
-identityにより、同じsourceの日本語版・英語版schema 5.0 noteを上書きせず共存できます。
+`validate` はschema 2.0〜7.0を扱います。schema 5.0は単一source、6.0はseries、7.0は
+compareです。profile付きファイル名とidentityにより、同じsourceの日本語版・英語版noteを
+上書きせず共存できます。
 
 ```console
 uv sync --locked

@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from doc_summarizer import __version__
+from doc_summarizer.comparison_resources import load_comparison_profile
 from doc_summarizer.config import (
     BUILT_IN_SUMMARY_PROFILES,
     DEFAULT_SUMMARY_PROFILE,
@@ -17,7 +18,7 @@ from doc_summarizer.config import (
     resolve_config,
 )
 from doc_summarizer.console_logging import ColorFormatter, log_success, supports_color
-from doc_summarizer.pipeline import summarize, synthesize_series
+from doc_summarizer.pipeline import summarize, synthesize_compare, synthesize_series
 from doc_summarizer.prompting import initialize_user_prompt, load_summary_prompt
 from doc_summarizer.summary_resources import load_summary_profile
 from doc_summarizer.validation import validate_summary
@@ -127,7 +128,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     synthesize_parser = commands.add_parser(
         "synthesize",
-        help="generate one series summary from ordered file paths or clipped URLs",
+        help="generate one series or comparison note from multiple ordered sources",
     )
     synthesize_parser.add_argument(
         "sources",
@@ -136,8 +137,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="ordered local file path or URL stored in clipped Frontmatter; requires at least two",
     )
     synthesize_parser.add_argument(
+        "--mode",
+        choices=("series", "compare"),
+        default="series",
+        help="series joins consecutive pages; compare analyzes independent sources",
+    )
+    synthesize_parser.add_argument(
         "--title",
-        help="summary title; defaults to the first source title",
+        help="explicit title override; otherwise AI derives it from the complete synthesis",
     )
     synthesize_parser.add_argument(
         "--output",
@@ -147,7 +154,7 @@ def build_parser() -> argparse.ArgumentParser:
     synthesize_parser.add_argument(
         "--overwrite",
         action="store_true",
-        help="regenerate and replace the matching series summary, including reviewed edits",
+        help="regenerate and replace the matching synthesis note, including reviewed edits",
     )
     synthesize_parser.add_argument(
         "--dry-run",
@@ -266,6 +273,7 @@ def main(argv: list[str] | None = None) -> int:
                 profile_name=config.summary_profile,
             )
             profile = load_summary_profile(config.summary_profile, prompt=prompt)
+            comparison_profile = load_comparison_profile(config.summary_profile)
             values = public_config(config)
             values["summary_prompt"] = {
                 "configured": values["summary_prompt"],
@@ -288,6 +296,27 @@ def main(argv: list[str] | None = None) -> int:
                     "id": profile.template.template_id,
                     "version": profile.template.version,
                     "sha256": profile.template.sha256,
+                },
+            }
+            values["comparison_profile"] = {
+                "name": comparison_profile.name,
+                "source": comparison_profile.source,
+                "sha256": comparison_profile.sha256,
+                "prompt": {
+                    "source": comparison_profile.prompt.source,
+                    "id": comparison_profile.prompt.prompt_id,
+                    "version": comparison_profile.prompt.version,
+                    "sha256": comparison_profile.prompt.sha256,
+                },
+                "output_schema": {
+                    "source": comparison_profile.schema.source,
+                    "sha256": comparison_profile.schema.sha256,
+                },
+                "template": {
+                    "source": comparison_profile.template.source,
+                    "id": comparison_profile.template.template_id,
+                    "version": comparison_profile.template.version,
+                    "sha256": comparison_profile.template.sha256,
                 },
             }
             print(
@@ -325,7 +354,8 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 0
         if args.command == "synthesize":
-            result = synthesize_series(
+            synthesis = synthesize_compare if args.mode == "compare" else synthesize_series
+            result = synthesis(
                 args.sources,
                 config,
                 title=args.title,
@@ -336,9 +366,9 @@ def main(argv: list[str] | None = None) -> int:
             if result.status == "planned":
                 logger.info("Dry run completed without writes")
             elif result.status == "unchanged":
-                log_success(logger, "Series summary is already current")
+                log_success(logger, "%s synthesis is already current", args.mode.capitalize())
             else:
-                log_success(logger, "Series summary completed successfully")
+                log_success(logger, "%s synthesis completed successfully", args.mode.capitalize())
             print(
                 json.dumps(
                     result.model_dump(mode="json"),

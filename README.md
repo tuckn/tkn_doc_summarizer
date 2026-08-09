@@ -80,6 +80,8 @@ directories while running `config show`.
 
 ## Basic usage
 
+### `summarize`
+
 Summarize a clipped Markdown file:
 
 ```console
@@ -116,16 +118,25 @@ Choose one exact output path:
 tkn-doc-summarizer summarize "C:\path\to\facts.md" --output "C:\path\to\summary.md"
 ```
 
+### `synthesize`
+
 To summarize consecutive pages as one logical article, list them in page order:
 
 ```console
-tkn-doc-summarizer synthesize "C:\path\to\page-1.md" "C:\path\to\page-2.md" --title "Complete example article" --dry-run
-tkn-doc-summarizer synthesize "C:\path\to\page-1.md" "C:\path\to\page-2.md" --title "Complete example article"
+tkn-doc-summarizer synthesize "C:\path\to\page-1.md" "C:\path\to\page-2.md" --dry-run
+tkn-doc-summarizer synthesize "C:\path\to\page-1.md" "C:\path\to\page-2.md"
 ```
 
 Each source may be a local path or a clipped article URL resolved locally
-through `source_roots`. `--title` is optional and defaults to the first source's
-title.
+through `source_roots`. When `--title` is omitted, the AI chooses a title after
+formulating the complete synthesis from all sources.
+
+To compare separate articles and synthesize common concepts, differing
+perspectives, and conflicting positions, select `--mode compare`:
+
+```console
+tkn-doc-summarizer synthesize "C:\path\to\article-a.md" "C:\path\to\article-b.md" --mode compare
+```
 
 ## Commands
 
@@ -158,20 +169,37 @@ the summary path, source path, validation details, and run-report path.
 
 ### `synthesize SOURCE SOURCE [...]`
 
-Purpose: create one integrated series summary from at least two sources listed
-in page order. The order is exactly the CLI argument order; it is never inferred
-from filenames or URLs. Repeated page furniture is omitted while cross-page
-reasoning and later qualifications are preserved. Source identifiers `S1`,
-`S2`, and so on are assigned automatically.
+Purpose: create one synthesis note from at least two sources. `--mode series` is
+the default and integrates pages of one article listed in page order. The order
+is exactly the CLI argument order; it is never inferred from filenames or URLs.
+Repeated page furniture is omitted while cross-page reasoning and later
+qualifications are preserved.
+
+`--mode compare` compares separate articles and produces a comparison summary,
+common concepts, perspectives, disagreements, source-specific insights,
+technical terms, and a conclusion. Substantive items cite source identifiers
+such as `[S1, S2]`. CLI order only assigns those identifiers; it does not imply
+authority, priority, or chronology. The generator does not invent a conflict
+when the sources do not genuinely disagree. Both modes assign `S1`, `S2`, and
+so on automatically.
 
 `--dry-run`, `--output`, `--output-root`, `--source-root`,
-`--summary-profile`, `--summary-prompt`, `--model`, and `--overwrite` follow the
-same write-safety rules as `summarize`. The total raw input is also limited by
+`--summary-profile`, `--model`, and `--overwrite` follow the same write-safety
+rules as `summarize`. `--summary-prompt` is available for series mode only;
+compare mode rejects it to keep its comparison prompt, schema, and template in
+sync. The total raw input is also limited by
 `max_total_input_bytes`. Duplicate entries resolving to the same local file are
-rejected. `--title TITLE` sets the combined article title; when omitted, the
-first source title is used.
+rejected. `--title TITLE` is an explicit override used unchanged in Frontmatter,
+the H1 heading, and the automatic filename. When omitted, the AI derives the
+title from the complete integrated series or comparison result.
 
-Generated schema 6.0 Frontmatter records an automatically generated stable
+Because `--dry-run` never invokes the AI, a run without `--title` reports a
+provisional path based on the first source title. JSON sets
+`generated_title_pending` to `true`; the real path is finalized from the
+generated title during generation.
+
+Series mode generates schema 6.0 and compare mode generates schema 7.0.
+Frontmatter records an automatically generated stable
 source-set UUID, mode, ordered local source URIs, every source SHA-256, and a
 canonical `sourceSetSha256`. The UUID is derived from the ordered resolved local
 URIs, while content changes are detected by `sourceSetSha256`. Changed source
@@ -181,8 +209,9 @@ replaced.
 ### `validate PATH`
 
 Validates the output schema, Frontmatter order and provenance, section
-structure, review status, and either the single source or every ordered series
-source and its SHA-256. Series validation also recalculates `sourceSetSha256`.
+structure, review status, and either the single source or every ordered
+series/compare source and its SHA-256. Multi-source validation also recalculates
+`sourceSetSha256`.
 
 ```console
 tkn-doc-summarizer validate "C:\path\to\summary.md"
@@ -194,7 +223,8 @@ when validation fails.
 ### `config show`
 
 Displays all resolved non-secret values, the configuration files read, the
-source of each setting, and built-in/custom prompt provenance.
+source of each setting, and built-in/custom prompt and comparison-profile
+provenance.
 
 ```console
 tkn-doc-summarizer config show
@@ -268,7 +298,7 @@ intentionally left to a separate CLI. The source body is not copied into the
 summary.
 
 `schemaVersion` and `promptVersion` are quoted YAML strings, for example
-`schemaVersion: "5.0"` and `promptVersion: "2.0"`. They are version identifiers,
+`schemaVersion: "5.0"` and `promptVersion: "3.0"`. They are version identifiers,
 not decimal quantities. Keeping them as strings preserves values such as
 `2.0`, `2.10`, or a future semantic version without YAML converting them to
 floating-point numbers.
@@ -338,13 +368,23 @@ nonzero.
 
 ## Development and verification
 
-### Summary profiles
+### Summary and comparison profiles
 
 The resources that jointly define summary generation are bundled as one
 application-owned profile:
 
 ```text
 src/doc_summarizer/summary_profiles/
+├── default-ja/
+│   ├── prompt.md
+│   ├── output.schema.json
+│   └── template.md
+└── default-en/
+    ├── prompt.md
+    ├── output.schema.json
+    └── template.md
+
+src/doc_summarizer/comparison_profiles/
 ├── default-ja/
 │   ├── prompt.md
 │   ├── output.schema.json
@@ -364,16 +404,18 @@ cannot leave an older note incorrectly classified as current.
 `config show` reports the active profile and each resource's provenance.
 
 Select a profile with `summary_profile` in YAML or `--summary-profile` on the
-CLI; CLI selection has normal highest precedence. Custom prompts remain
-supported. They replace only the selected profile's `prompt.md` and are combined
-with that profile's schema and template into a separately fingerprinted profile.
+CLI; CLI selection has normal highest precedence and also selects the comparison
+profile language. Custom prompts remain supported for summarize and series.
+They replace only the selected profile's `prompt.md` and are combined with that
+profile's schema and template into a separately fingerprinted profile. Compare
+profiles are application-owned comparison contracts and reject custom prompts.
 Coordinate field changes across the prompt,
 schema, Pydantic models, renderer, validation, and tests; coordinate layout
 changes across the template, renderer, validation, and tests.
 
-Existing schema 2.0 through 4.0 notes remain accepted by `validate`. New
-profile-aware filenames and identity allow Japanese and English schema 5.0 notes
-for one source to coexist without overwriting an older note.
+`validate` accepts schema 2.0 through 7.0. Schema 5.0 is single-source, 6.0 is
+series, and 7.0 is compare. Profile-aware filenames and identity allow Japanese
+and English notes for one source to coexist without overwriting each other.
 
 ```console
 uv sync --locked

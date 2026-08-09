@@ -29,6 +29,7 @@ class FakeProvider:
         self.calls += 1
         return ProviderResult(
             document=SummaryDocument(
+                title="AI-generated complete summary",
                 description="This is a source-grounded description.",
                 summary="This is the complete summary.",
                 structuring=[
@@ -113,7 +114,7 @@ def test_create_validate_and_idempotent_rerun(tmp_path: Path) -> None:
     metadata, _ = split_frontmatter(text)
     assert metadata["type"] == "summary"
     assert metadata["schemaVersion"] == "5.0"
-    assert metadata["promptVersion"] == "2.0"
+    assert metadata["promptVersion"] == "3.0"
     assert metadata["summaryProfile"] == "default-ja"
     assert metadata["summaryProfileSha256"] == provider.profile.sha256
     assert metadata["outputSchemaSha256"] == provider.profile.schema.sha256
@@ -123,7 +124,7 @@ def test_create_validate_and_idempotent_rerun(tmp_path: Path) -> None:
     assert "nouns" not in metadata
     assert "requestedModel" not in metadata
     assert 'schemaVersion: "5.0"' in text
-    assert 'promptVersion: "2.0"' in text
+    assert 'promptVersion: "3.0"' in text
     assert (
         text.index("# Example article")
         < text.index("![](https://example.com/cover.png)")
@@ -156,6 +157,7 @@ def test_create_validate_and_idempotent_series_summary(tmp_path: Path) -> None:
     metadata, _ = split_frontmatter(first.path.read_text(encoding="utf-8"))
     assert metadata["schemaVersion"] == "6.0"
     assert metadata["synthesisMode"] == "series"
+    assert metadata["title"] == "Complete example article"
     assert len(metadata["sourceSetId"]) == 36
     assert [entry["id"] for entry in metadata["sources"]] == ["S1", "S2"]
     assert len(metadata["sourceSetSha256"]) == 64
@@ -170,6 +172,47 @@ def test_create_validate_and_idempotent_series_summary(tmp_path: Path) -> None:
 
     assert second.status == "unchanged"
     assert provider.calls == 1
+
+
+def test_series_uses_generated_title_when_title_is_omitted(tmp_path: Path) -> None:
+    sources = _series_sources(tmp_path)
+    provider = FakeProvider()
+
+    first = synthesize_series(
+        [str(path) for path in sources],
+        _config(tmp_path),
+        provider=provider,
+    )
+
+    metadata, body = split_frontmatter(first.path.read_text(encoding="utf-8"))
+    assert metadata["title"] == "AI-generated complete summary"
+    assert body.lstrip().startswith("# AI-generated complete summary\n")
+    assert "AI-generated complete summary" in first.path.name
+
+    second = synthesize_series(
+        [str(path) for path in sources],
+        _config(tmp_path),
+        provider=provider,
+    )
+    assert second.status == "unchanged"
+    assert second.path == first.path
+    assert provider.calls == 1
+
+
+def test_series_dry_run_marks_generated_title_as_pending(tmp_path: Path) -> None:
+    sources = _series_sources(tmp_path)
+    provider = FakeProvider()
+
+    result = synthesize_series(
+        [str(path) for path in sources],
+        _config(tmp_path),
+        provider=provider,
+        dry_run=True,
+    )
+
+    assert result.status == "planned"
+    assert result.details["generated_title_pending"] is True
+    assert provider.calls == 0
 
 
 def test_changed_series_source_requires_overwrite(tmp_path: Path) -> None:

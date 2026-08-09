@@ -10,12 +10,19 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlparse
 
-from doc_summarizer.models import DocumentSource, DocumentSourceSet, SummaryDocument
+from doc_summarizer.comparison_resources import ComparisonProfile, render_comparison_template
+from doc_summarizer.models import (
+    ComparisonDocument,
+    DocumentSource,
+    DocumentSourceSet,
+    SummaryDocument,
+)
 from doc_summarizer.source import split_frontmatter
 from doc_summarizer.summary_resources import SummaryProfile, render_summary_template
 
 SUMMARY_SCHEMA_VERSION = "5.0"
 SERIES_SUMMARY_SCHEMA_VERSION = "6.0"
+COMPARISON_SUMMARY_SCHEMA_VERSION = "7.0"
 DESCRIPTION_MAX_CHARS = 240
 REVIEW_STATUSES = (
     "unreviewed",
@@ -222,6 +229,119 @@ def render_series_summary(
         cover=source_set.cover,
         document=document,
         profile=profile,
+    )
+
+
+def _source_citation(source_ids: list[str]) -> str:
+    return "[" + ", ".join(source_ids) + "]"
+
+
+def render_comparison_summary(
+    *,
+    source_set: DocumentSourceSet,
+    document: ComparisonDocument,
+    now: datetime,
+    generator: str,
+    profile: ComparisonProfile,
+    prompt_envelope_version: str,
+    note_id: str | None = None,
+    created_at: datetime | None = None,
+) -> str:
+    created = created_at or now
+    first_source = source_set.sources[0].document
+    canonical_reference = first_source.url or path_to_file_uri(first_source.path)
+    prompt = profile.prompt
+    template = profile.template
+    frontmatter_lines = [
+        "---",
+        "type: summary",
+        f"schemaVersion: {yaml_quote(COMPARISON_SUMMARY_SCHEMA_VERSION)}",
+        f"title: {yaml_quote(source_set.title)}",
+        f"description: {yaml_quote(compact_description(document.description))}",
+        f"cover: {yaml_optional(source_set.cover)}",
+        f"url: {yaml_quote(canonical_reference)}",
+        "cliptool: Codex",
+        "synthesisMode: compare",
+        f"sourceSetId: {source_set.source_set_id}",
+        f"sourceSetPublished: {yaml_optional(source_set.published)}",
+        f"sourceSetSha256: {source_set.source_set_sha256}",
+        "sources:",
+    ]
+    for entry in source_set.sources:
+        source = entry.document
+        frontmatter_lines.extend(
+            [
+                f"  - id: {yaml_quote(entry.id)}",
+                f"    source: {yaml_quote(path_to_file_uri(source.path))}",
+                f"    sourceSha256: {source.source_sha256}",
+            ]
+        )
+    frontmatter_lines.extend(
+        [
+            f"generator: {yaml_quote(generator)}",
+            f"promptId: {prompt.prompt_id}",
+            f"promptVersion: {yaml_quote(prompt.version)}",
+            f"promptSha256: {prompt.sha256}",
+            f"summaryProfile: {yaml_quote(profile.name)}",
+            f"summaryProfileSha256: {profile.sha256}",
+            f"outputSchemaSha256: {profile.schema.sha256}",
+            f"templateId: {template.template_id}",
+            f"templateVersion: {yaml_quote(template.version)}",
+            f"templateSha256: {template.sha256}",
+            f"promptEnvelopeVersion: {yaml_quote(prompt_envelope_version)}",
+            "reviewStatus: unreviewed",
+            f"date: {created.isoformat(timespec='seconds')}",
+            f"updated: {now.isoformat(timespec='seconds')}",
+            f"noteId: {note_id or uuid.uuid4()}",
+            "---",
+        ]
+    )
+    common_concepts = "\n".join(
+        f"- {item.text.strip()} {_source_citation(item.source_ids)}"
+        for item in document.common_concepts
+    )
+    perspectives = "\n\n".join(
+        f"### {item.heading.strip()}\n\n"
+        f"{item.explanation.strip()} {_source_citation(item.source_ids)}"
+        for item in document.perspectives
+    )
+    disagreement_groups = [
+        f"### {item.topic.strip()}\n\n"
+        + "\n".join(
+            f"- {position.text.strip()} {_source_citation(position.source_ids)}"
+            for position in item.positions
+        )
+        for item in document.disagreements
+    ]
+    if disagreement_groups:
+        disagreements = "\n\n".join(disagreement_groups)
+    elif profile.language_profile == "default-ja":
+        disagreements = "明示的な相違・対立は確認できません。"
+    else:
+        disagreements = "No explicit material disagreement was identified."
+    if document.source_specific_insights:
+        source_specific = "\n".join(
+            f"- {item.insight.strip()} [{item.source_id}]"
+            for item in document.source_specific_insights
+        )
+    elif profile.language_profile == "default-ja":
+        source_specific = "各ソースだけに固有の重要な知見は確認できません。"
+    else:
+        source_specific = "No material source-specific insight was identified."
+    return render_comparison_template(
+        template,
+        {
+            "frontmatter": "\n".join(frontmatter_lines),
+            "title": source_set.title,
+            "cover": f"![]({source_set.cover})\n\n" if source_set.cover else "",
+            "summary": document.summary.strip(),
+            "common_concepts": common_concepts,
+            "perspectives": perspectives,
+            "disagreements": disagreements,
+            "source_specific_insights": source_specific,
+            "technical_terms": "\n".join(f"- {term.strip()}" for term in document.technical_terms),
+            "conclusion": document.conclusion.strip(),
+        },
     )
 
 
