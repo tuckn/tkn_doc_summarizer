@@ -10,7 +10,7 @@ import tempfile
 from pathlib import Path
 
 from doc_summarizer.config import DEFAULT_SUMMARY_PROFILE
-from doc_summarizer.models import SummaryDocument, SummaryRequest
+from doc_summarizer.models import SummaryDocument, SummaryGenerationRequest
 from doc_summarizer.prompting import load_summary_prompt, render_summary_prompt
 from doc_summarizer.providers.base import ProviderResult
 from doc_summarizer.summary_resources import load_summary_profile
@@ -60,7 +60,7 @@ class CodexProvider:
             raise RuntimeError(f"Codex preflight failed with exit {result.returncode}: {detail}")
         return result.stdout.strip() or result.stderr.strip()
 
-    def generate(self, request: SummaryRequest) -> ProviderResult:
+    def generate(self, request: SummaryGenerationRequest) -> ProviderResult:
         provider_version = self.preflight()
         prompt_text = render_summary_prompt(self.prompt, request)
         schema = self.profile.schema.value

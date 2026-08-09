@@ -9,9 +9,11 @@ from pathlib import Path
 from doc_summarizer.io import sha256_bytes
 from doc_summarizer.notes import (
     REVIEW_STATUSES,
+    SERIES_SUMMARY_SCHEMA_VERSION,
     SUMMARY_SCHEMA_VERSION,
     file_uri_to_path,
 )
+from doc_summarizer.series import metadata_source_set_sha256
 from doc_summarizer.source import split_frontmatter
 
 LEGACY_SUMMARY_FRONTMATTER_ORDER = [
@@ -44,11 +46,41 @@ SUMMARY_FRONTMATTER_ORDER = [
     "templateSha256",
     *LEGACY_SUMMARY_FRONTMATTER_ORDER[13:],
 ]
+SERIES_SUMMARY_FRONTMATTER_ORDER = [
+    "type",
+    "schemaVersion",
+    "title",
+    "description",
+    "cover",
+    "url",
+    "cliptool",
+    "synthesisMode",
+    "sourceSetId",
+    "sourceSetPublished",
+    "sourceSetSha256",
+    "sources",
+    "generator",
+    "promptId",
+    "promptVersion",
+    "promptSha256",
+    "summaryProfile",
+    "summaryProfileSha256",
+    "outputSchemaSha256",
+    "templateId",
+    "templateVersion",
+    "templateSha256",
+    "promptEnvelopeVersion",
+    "reviewStatus",
+    "date",
+    "updated",
+    "noteId",
+]
 PROFILED_SUMMARY_SCHEMA_VERSIONS = ("4.0", SUMMARY_SCHEMA_VERSION)
 SUPPORTED_SUMMARY_SCHEMA_VERSIONS = (
     "2.0",
     "3.0",
     *PROFILED_SUMMARY_SCHEMA_VERSIONS,
+    SERIES_SUMMARY_SCHEMA_VERSION,
 )
 ENGLISH_HEADINGS = (
     "## 1. Summary",
@@ -97,7 +129,10 @@ def _section(body: str, heading: str, next_heading: str | None = None) -> str:
 
 
 def _summary_headings(metadata: dict[str, object], schema_version: str) -> tuple[str, ...]:
-    if schema_version == SUMMARY_SCHEMA_VERSION and metadata.get("summaryProfile") == "default-ja":
+    if (
+        schema_version in (SUMMARY_SCHEMA_VERSION, SERIES_SUMMARY_SCHEMA_VERSION)
+        and metadata.get("summaryProfile") == "default-ja"
+    ):
         return JAPANESE_HEADINGS
     return ENGLISH_HEADINGS
 
@@ -109,11 +144,12 @@ def validate_summary_text(text: str, *, verify_source: bool = True) -> list[str]
     except ValueError as exc:
         return [str(exc)]
     schema_version = str(metadata.get("schemaVersion"))
-    expected_order = (
-        SUMMARY_FRONTMATTER_ORDER
-        if schema_version in PROFILED_SUMMARY_SCHEMA_VERSIONS
-        else LEGACY_SUMMARY_FRONTMATTER_ORDER
-    )
+    if schema_version == SERIES_SUMMARY_SCHEMA_VERSION:
+        expected_order = SERIES_SUMMARY_FRONTMATTER_ORDER
+    elif schema_version in PROFILED_SUMMARY_SCHEMA_VERSIONS:
+        expected_order = SUMMARY_FRONTMATTER_ORDER
+    else:
+        expected_order = LEGACY_SUMMARY_FRONTMATTER_ORDER
     if _frontmatter_keys(text) != expected_order:
         errors.append("summary frontmatter fields are missing or out of order")
     if metadata.get("type") != "summary":
@@ -125,12 +161,10 @@ def validate_summary_text(text: str, *, verify_source: bool = True) -> list[str]
         errors.append("cliptool must be 'Codex'")
     if metadata.get("reviewStatus") not in REVIEW_STATUSES:
         errors.append("reviewStatus must be one of: " + ", ".join(REVIEW_STATUSES))
-    for key in (
+    common_required = (
         "title",
         "description",
         "url",
-        "source",
-        "sourceSha256",
         "generator",
         "promptId",
         "promptVersion",
@@ -139,10 +173,16 @@ def validate_summary_text(text: str, *, verify_source: bool = True) -> list[str]
         "date",
         "updated",
         "noteId",
-    ):
+    )
+    source_required = (
+        ("synthesisMode", "sourceSetId", "sourceSetSha256", "sources")
+        if schema_version == SERIES_SUMMARY_SCHEMA_VERSION
+        else ("source", "sourceSha256")
+    )
+    for key in (*common_required, *source_required):
         if not metadata.get(key):
             errors.append(f"{key} must be non-empty")
-    if schema_version in PROFILED_SUMMARY_SCHEMA_VERSIONS:
+    if schema_version in (*PROFILED_SUMMARY_SCHEMA_VERSIONS, SERIES_SUMMARY_SCHEMA_VERSION):
         for key in (
             "summaryProfile",
             "summaryProfileSha256",
@@ -155,15 +195,20 @@ def validate_summary_text(text: str, *, verify_source: bool = True) -> list[str]
                 errors.append(f"{key} must be non-empty")
         if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", str(metadata.get("summaryProfile") or "")):
             errors.append("summaryProfile must use a lowercase kebab-case name")
-    digest_keys = ["sourceSha256", "promptSha256"]
-    if schema_version in PROFILED_SUMMARY_SCHEMA_VERSIONS:
+    digest_keys = ["promptSha256"]
+    digest_keys.append(
+        "sourceSetSha256" if schema_version == SERIES_SUMMARY_SCHEMA_VERSION else "sourceSha256"
+    )
+    if schema_version in (*PROFILED_SUMMARY_SCHEMA_VERSIONS, SERIES_SUMMARY_SCHEMA_VERSION):
         digest_keys.extend(["summaryProfileSha256", "outputSchemaSha256", "templateSha256"])
     for key in digest_keys:
         if not re.fullmatch(r"[0-9a-f]{64}", str(metadata.get(key) or "")):
             errors.append(f"{key} must be a lowercase SHA-256 digest")
     uuid_keys = ["promptId", "noteId"]
-    if schema_version in PROFILED_SUMMARY_SCHEMA_VERSIONS:
+    if schema_version in (*PROFILED_SUMMARY_SCHEMA_VERSIONS, SERIES_SUMMARY_SCHEMA_VERSION):
         uuid_keys.append("templateId")
+    if schema_version == SERIES_SUMMARY_SCHEMA_VERSION:
+        uuid_keys.append("sourceSetId")
     for key in uuid_keys:
         try:
             normalized = str(uuid.UUID(str(metadata.get(key))))
@@ -172,7 +217,11 @@ def validate_summary_text(text: str, *, verify_source: bool = True) -> list[str]
         except (ValueError, AttributeError):
             errors.append(f"{key} must be a UUID")
     headings = _summary_headings(metadata, schema_version)
-    if schema_version in ("3.0", *PROFILED_SUMMARY_SCHEMA_VERSIONS) and metadata.get("cover"):
+    if schema_version in (
+        "3.0",
+        *PROFILED_SUMMARY_SCHEMA_VERSIONS,
+        SERIES_SUMMARY_SCHEMA_VERSION,
+    ) and metadata.get("cover"):
         title_heading = f"# {metadata.get('title')}"
         cover_embed = f"![]({metadata.get('cover')})"
         title_position = body.find(title_heading)
@@ -208,7 +257,42 @@ def validate_summary_text(text: str, *, verify_source: bool = True) -> list[str]
             if not re.match(r"^\*\*.+?\*\*:\s+\S", term):
                 errors.append("technical terms must use '**term**: explanation' format")
                 break
-    if verify_source:
+    if verify_source and schema_version == SERIES_SUMMARY_SCHEMA_VERSION:
+        if metadata.get("synthesisMode") != "series":
+            errors.append("synthesisMode must be 'series'")
+        sources = metadata.get("sources")
+        if not isinstance(sources, list) or len(sources) < 2:
+            errors.append("sources must contain at least two source entries")
+        else:
+            source_ids: list[str] = []
+            for index, entry in enumerate(sources, start=1):
+                if not isinstance(entry, dict):
+                    errors.append(f"sources[{index}] must be a mapping")
+                    continue
+                if set(entry) != {"id", "source", "sourceSha256"}:
+                    errors.append(
+                        f"sources[{index}] must contain only id, source, and sourceSha256"
+                    )
+                    continue
+                source_id = str(entry.get("id") or "")
+                if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]*", source_id):
+                    errors.append(f"sources[{index}].id is invalid")
+                source_ids.append(source_id.casefold())
+                digest = str(entry.get("sourceSha256") or "")
+                if not re.fullmatch(r"[0-9a-f]{64}", digest):
+                    errors.append(f"sources[{index}].sourceSha256 is invalid")
+                    continue
+                try:
+                    source_path = file_uri_to_path(str(entry.get("source") or ""))
+                    if sha256_bytes(source_path.read_bytes()) != digest:
+                        errors.append(f"sources[{index}].sourceSha256 does not match its source")
+                except (OSError, ValueError) as exc:
+                    errors.append(f"cannot validate sources[{index}] reference: {exc}")
+            if len(source_ids) != len(set(source_ids)):
+                errors.append("sources ids must be unique")
+            if metadata_source_set_sha256(metadata) != metadata.get("sourceSetSha256"):
+                errors.append("sourceSetSha256 does not match the source-set metadata")
+    elif verify_source:
         try:
             source_path = file_uri_to_path(str(metadata.get("source") or ""))
             payload = source_path.read_bytes()

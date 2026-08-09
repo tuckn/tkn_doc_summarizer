@@ -7,8 +7,8 @@ document or an article previously saved as Markdown by a browser clipper. A URL
 input is a lookup key for a local clipped note; this application does not fetch
 the web page itself.
 
-The source file is never copied, edited, moved, or deleted. The only content
-artifact created by `summarize` is the summary Markdown note.
+Source files are never copied, edited, moved, or deleted. The only content
+artifact created by `summarize` or `synthesize` is the summary Markdown note.
 
 ## Requirements
 
@@ -20,25 +20,23 @@ artifact created by `summarize` is the summary Markdown note.
 
 ## Install
 
-For normal use, install the CLI from any directory by specifying the repository
-path:
+For normal use, replace the example path with the actual path to this repository,
+then install the CLI from the repository root:
 
 ```console
-uv tool install "C:\path\to\tkn_doc_summarizer"
+cd "C:\path\to\tkn_doc_summarizer"
+uv tool install .
 tkn-doc-summarizer --help
-tkn-doc-summarizer config show
 ```
-
-From the repository root, `uv tool install .` is equivalent.
 
 This normal installation captures the code, package resources, and dependencies
 at installation time. After updating the repository with `git pull` or another
 method, reinstall the tool to apply those changes:
 
 ```console
-uv tool install "C:\path\to\tkn_doc_summarizer" --reinstall
+cd "C:\path\to\tkn_doc_summarizer"
+uv tool install . --reinstall
 tkn-doc-summarizer --help
-tkn-doc-summarizer config show
 ```
 
 Use `--force` only when the tool itself must be forcibly installed, such as when
@@ -50,7 +48,8 @@ For development, use an editable installation when source changes should be
 reflected immediately:
 
 ```console
-uv tool install -e "C:\path\to\tkn_doc_summarizer" --reinstall
+cd "C:\path\to\tkn_doc_summarizer"
+uv tool install -e . --reinstall
 ```
 
 Ordinary source-code changes do not require reinstalling an editable
@@ -117,6 +116,17 @@ Choose one exact output path:
 tkn-doc-summarizer summarize "C:\path\to\facts.md" --output "C:\path\to\summary.md"
 ```
 
+To summarize consecutive pages as one logical article, list them in page order:
+
+```console
+tkn-doc-summarizer synthesize "C:\path\to\page-1.md" "C:\path\to\page-2.md" --title "Complete example article" --dry-run
+tkn-doc-summarizer synthesize "C:\path\to\page-1.md" "C:\path\to\page-2.md" --title "Complete example article"
+```
+
+Each source may be a local path or a clipped article URL resolved locally
+through `source_roots`. `--title` is optional and defaults to the first source's
+title.
+
 ## Commands
 
 ### `summarize SOURCE`
@@ -146,10 +156,33 @@ notes and can coexist for the same source.
 Success is confirmed by final JSON with `created`, `updated`, or `unchanged`,
 the summary path, source path, validation details, and run-report path.
 
+### `synthesize SOURCE SOURCE [...]`
+
+Purpose: create one integrated series summary from at least two sources listed
+in page order. The order is exactly the CLI argument order; it is never inferred
+from filenames or URLs. Repeated page furniture is omitted while cross-page
+reasoning and later qualifications are preserved. Source identifiers `S1`,
+`S2`, and so on are assigned automatically.
+
+`--dry-run`, `--output`, `--output-root`, `--source-root`,
+`--summary-profile`, `--summary-prompt`, `--model`, and `--overwrite` follow the
+same write-safety rules as `summarize`. The total raw input is also limited by
+`max_total_input_bytes`. Duplicate entries resolving to the same local file are
+rejected. `--title TITLE` sets the combined article title; when omitted, the
+first source title is used.
+
+Generated schema 6.0 Frontmatter records an automatically generated stable
+source-set UUID, mode, ordered local source URIs, every source SHA-256, and a
+canonical `sourceSetSha256`. The UUID is derived from the ordered resolved local
+URIs, while content changes are detected by `sourceSetSha256`. Changed source
+content requires explicit `--overwrite`, and reviewed output is never silently
+replaced.
+
 ### `validate PATH`
 
 Validates the output schema, Frontmatter order and provenance, section
-structure, review status, source file reference, and source SHA-256.
+structure, review status, and either the single source or every ordered series
+source and its SHA-256. Series validation also recalculates `sourceSetSha256`.
 
 ```console
 tkn-doc-summarizer validate "C:\path\to\summary.md"
@@ -264,6 +297,7 @@ sources, and unsupported providers fail closed.
 | `codex_executable` | `codex` | Executable or shim name |
 | `codex_timeout_seconds` | `1800` | Generation timeout |
 | `max_input_bytes` | `2000000` | Maximum UTF-8 source file size |
+| `max_total_input_bytes` | `8000000` | Maximum total source bytes for one source set |
 | `summary_profile` | `default-ja` | Built-in language/profile: `default-ja` or `default-en` |
 | `summary_prompt` | `null` | Selected profile's prompt, user prompt filename, or absolute path |
 

@@ -38,6 +38,48 @@ def test_dry_run_outputs_only_json_to_stdout(
     assert not (tmp_path / "output").exists()
 
 
+def test_series_dry_run_outputs_resolved_sources_without_writes(
+    tmp_path: Path,
+    capsys: object,
+) -> None:
+    first = tmp_path / "one.md"
+    second = tmp_path / "two.md"
+    first.write_text("# One\n\nFirst.", encoding="utf-8")
+    second.write_text("# Two\n\nSecond.", encoding="utf-8")
+
+    code = main(
+        [
+            "synthesize",
+            str(first),
+            str(second),
+            "--title",
+            "Complete article",
+            "--output-root",
+            str(tmp_path / "output"),
+            "--dry-run",
+        ]
+    )
+
+    assert code == 0
+    captured = capsys.readouterr()  # type: ignore[attr-defined]
+    payload = json.loads(captured.out)
+    assert payload["status"] == "planned"
+    assert payload["details"]["synthesis_mode"] == "series"
+    assert payload["details"]["source_count"] == 2
+    assert not (tmp_path / "output").exists()
+
+
+def test_series_requires_two_cli_sources(tmp_path: Path, capsys: object) -> None:
+    source = tmp_path / "one.md"
+    source.write_text("# One\n\nFirst.", encoding="utf-8")
+
+    code = main(["synthesize", str(source), "--dry-run"])
+
+    assert code == 1
+    captured = capsys.readouterr()  # type: ignore[attr-defined]
+    assert "at least two sources" in captured.err
+
+
 def test_validate_invalid_note_returns_nonzero(
     tmp_path: Path,
     capsys: object,

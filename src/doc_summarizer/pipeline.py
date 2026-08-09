@@ -11,16 +11,24 @@ from typing import Any
 
 from doc_summarizer.config import AppConfig
 from doc_summarizer.io import atomic_write
-from doc_summarizer.models import DocumentSource, SummaryRequest, SummaryResult
+from doc_summarizer.models import (
+    DocumentSource,
+    DocumentSourceSet,
+    SeriesSummaryRequest,
+    SummaryRequest,
+    SummaryResult,
+)
 from doc_summarizer.naming import build_output_path
 from doc_summarizer.notes import (
     REVIEW_STATUSES,
     frontmatter_datetime,
     path_to_file_uri,
+    render_series_summary,
     render_summary,
 )
-from doc_summarizer.prompting import PROMPT_ENVELOPE_VERSION
+from doc_summarizer.prompting import PROMPT_ENVELOPE_VERSION, SERIES_PROMPT_ENVELOPE_VERSION
 from doc_summarizer.providers import CodexProvider, SummaryProvider
+from doc_summarizer.series import resolve_series_sources
 from doc_summarizer.source import resolve_source, split_frontmatter
 from doc_summarizer.validation import validate_summary, validate_summary_text
 
@@ -153,6 +161,7 @@ def _write_report(
     status: str,
     result: SummaryResult | None = None,
     error: str | None = None,
+    command: str = "summarize",
 ) -> Path:
     now = datetime.now().astimezone()
     run_id = f"{now.strftime('%Y%m%dT%H%M%S%z')}_{uuid.uuid4().hex[:8]}"
@@ -160,7 +169,7 @@ def _write_report(
     payload: dict[str, object] = {
         "schema_version": "1.0",
         "run_id": run_id,
-        "command": "summarize",
+        "command": command,
         "started_at": started_at.isoformat(timespec="seconds"),
         "finished_at": now.isoformat(timespec="seconds"),
         "status": status,
@@ -377,5 +386,322 @@ def summarize(
         started_at=started_at,
         status="success",
         result=result,
+    )
+    return result.model_copy(update={"report_path": report})
+
+
+def _find_existing_series(
+    output_root: Path,
+    *,
+    source_set_id: str,
+    profile_name: str,
+    prompt_id: str,
+) -> Path | None:
+    if not output_root.is_dir():
+        return None
+    matches: list[Path] = []
+    for candidate in output_root.rglob("*.md"):
+        metadata = _candidate_metadata(candidate)
+        if metadata is None:
+            continue
+        if (
+            metadata.get("synthesisMode") == "series"
+            and str(metadata.get("sourceSetId") or "") == source_set_id
+            and str(metadata.get("summaryProfile") or "") == profile_name
+            and str(metadata.get("promptId") or "") == prompt_id
+        ):
+            matches.append(candidate)
+    if len(matches) > 1:
+        raise FileExistsError(
+            "multiple series summaries share the same sourceSetId, summaryProfile, and promptId: "
+            + ", ".join(str(path) for path in sorted(matches))
+        )
+    return matches[0] if matches else None
+
+
+def _series_target_path(
+    source_set: DocumentSourceSet,
+    config: AppConfig,
+    provider: SummaryProvider,
+    explicit_output: Path | None,
+) -> Path:
+    if explicit_output is not None:
+        target = explicit_output.expanduser()
+        target = target if target.is_absolute() else (Path.cwd() / target).resolve()
+        if target.suffix.lower() != ".md":
+            raise ValueError("--output must use the .md extension")
+        return target
+    existing = _find_existing_series(
+        config.output_root,
+        source_set_id=source_set.source_set_id,
+        profile_name=provider.profile.name,
+        prompt_id=provider.prompt.prompt_id,
+    )
+    if existing:
+        return existing
+    return build_output_path(
+        config.output_root,
+        source_path=source_set.sources[0].document.path,
+        published=source_set.published,
+        title=source_set.title,
+        profile_name=provider.profile.name,
+        prompt_id=provider.prompt.prompt_id,
+        identity_suffix=uuid.UUID(source_set.source_set_id).hex[:8],
+    )
+
+
+def _validate_existing_series_identity(
+    metadata: dict[str, Any],
+    *,
+    source_set_id: str,
+    profile_name: str,
+    prompt_id: str,
+    target: Path,
+) -> None:
+    if (
+        metadata.get("synthesisMode") != "series"
+        or str(metadata.get("sourceSetId") or "") != source_set_id
+        or str(metadata.get("summaryProfile") or "") != profile_name
+        or str(metadata.get("promptId") or "") != prompt_id
+    ):
+        raise FileExistsError(
+            "refusing to replace an output that belongs to another source set, "
+            f"synthesis mode, summary profile, or prompt: {target}"
+        )
+
+
+def _is_current_series(
+    metadata: dict[str, Any],
+    *,
+    source_set: DocumentSourceSet,
+    prompt_version: str,
+    prompt_sha256: str,
+    profile_sha256: str,
+    requested_model: str | None,
+) -> bool:
+    generator = str(metadata.get("generator") or "")
+    model_matches = requested_model is None or generator == f"Codex ({requested_model})"
+    return (
+        metadata.get("sourceSetSha256") == source_set.source_set_sha256
+        and str(metadata.get("promptVersion") or "") == prompt_version
+        and metadata.get("promptSha256") == prompt_sha256
+        and metadata.get("summaryProfileSha256") == profile_sha256
+        and metadata.get("promptEnvelopeVersion") == SERIES_PROMPT_ENVELOPE_VERSION
+        and model_matches
+    )
+
+
+def _series_details(
+    source_set: DocumentSourceSet,
+    provider: SummaryProvider,
+    *,
+    dry_run: bool,
+) -> dict[str, object]:
+    prompt = provider.prompt
+    profile = provider.profile
+    return {
+        "validated": not dry_run,
+        "synthesis_mode": "series",
+        "source_set_id": source_set.source_set_id,
+        "source_set_sha256": source_set.source_set_sha256,
+        "source_count": len(source_set.sources),
+        "source_paths": [str(entry.document.path) for entry in source_set.sources],
+        "prompt_id": prompt.prompt_id,
+        "prompt_version": prompt.version,
+        "prompt_sha256": prompt.sha256,
+        "summary_profile": profile.name,
+        "summary_profile_sha256": profile.sha256,
+        "dry_run": dry_run,
+    }
+
+
+def _synthesize_series(
+    source_values: list[str],
+    config: AppConfig,
+    *,
+    title: str | None,
+    provider: SummaryProvider,
+    explicit_output: Path | None,
+    overwrite: bool,
+    dry_run: bool,
+) -> SummaryResult:
+    source_set = resolve_series_sources(
+        source_values,
+        title=title,
+        source_roots=config.source_roots,
+        max_input_bytes=config.max_input_bytes,
+        max_total_input_bytes=config.max_total_input_bytes,
+    )
+    prompt = provider.prompt
+    profile = provider.profile
+    target = _series_target_path(source_set, config, provider, explicit_output)
+    existing_metadata: dict[str, Any] | None = None
+    if target.exists():
+        existing_metadata = _candidate_metadata(target)
+        if existing_metadata is None:
+            raise FileExistsError(f"existing output is not a readable generated summary: {target}")
+        _validate_existing_series_identity(
+            existing_metadata,
+            source_set_id=source_set.source_set_id,
+            profile_name=profile.name,
+            prompt_id=prompt.prompt_id,
+            target=target,
+        )
+        existing_errors = validate_summary(target)
+        current = _is_current_series(
+            existing_metadata,
+            source_set=source_set,
+            prompt_version=prompt.version,
+            prompt_sha256=prompt.sha256,
+            profile_sha256=profile.sha256,
+            requested_model=config.model,
+        )
+        if current and not existing_errors and not overwrite:
+            logger.info("Series summary note is already current: %s", target)
+            return SummaryResult(
+                path=target,
+                source_path=source_set.sources[0].document.path,
+                status="unchanged",
+                details=_series_details(source_set, provider, dry_run=dry_run),
+            )
+        if not overwrite:
+            reason = (
+                "; ".join(existing_errors)
+                if existing_errors
+                else "source set, prompt, or explicitly selected model changed"
+            )
+            raise FileExistsError(
+                f"existing series summary requires explicit --overwrite ({reason}): {target}"
+            )
+        review_status = str(existing_metadata.get("reviewStatus") or "")
+        if review_status in REVIEW_STATUSES and review_status != "unreviewed":
+            logger.warning(
+                "Overwriting a %s summary resets reviewStatus to unreviewed: %s",
+                review_status,
+                target,
+            )
+    if dry_run:
+        action = "updated" if target.exists() else "created"
+        logger.info("Dry run: series summary would be %s at %s", action, target)
+        details = _series_details(source_set, provider, dry_run=True)
+        details["planned_status"] = action
+        return SummaryResult(
+            path=target,
+            source_path=source_set.sources[0].document.path,
+            status="planned",
+            details=details,
+        )
+    request = SeriesSummaryRequest(
+        source_set=source_set,
+        prompt_envelope_version=SERIES_PROMPT_ENVELOPE_VERSION,
+    )
+    logger.info(
+        "Generating one structured summary from %d ordered sources", len(source_set.sources)
+    )
+    generated = provider.generate(request)
+    if (
+        generated.prompt_id != prompt.prompt_id
+        or generated.prompt_version != prompt.version
+        or generated.prompt_sha256 != prompt.sha256
+        or generated.prompt_envelope_version != SERIES_PROMPT_ENVELOPE_VERSION
+    ):
+        raise RuntimeError("provider returned prompt provenance that does not match the request")
+    now = datetime.now().astimezone()
+    note_id = (
+        str(existing_metadata.get("noteId"))
+        if existing_metadata and existing_metadata.get("noteId")
+        else None
+    )
+    created_at = (
+        frontmatter_datetime(existing_metadata["date"])
+        if existing_metadata and existing_metadata.get("date")
+        else None
+    )
+    text = render_series_summary(
+        source_set=source_set,
+        document=generated.document,
+        now=now,
+        generator=generated.generator,
+        profile=profile,
+        prompt_envelope_version=SERIES_PROMPT_ENVELOPE_VERSION,
+        note_id=note_id,
+        created_at=created_at,
+    )
+    errors = validate_summary_text(text)
+    if errors:
+        raise RuntimeError("generated series summary validation failed: " + "; ".join(errors))
+    status = atomic_write(target, text, overwrite=overwrite)
+    persisted_errors = validate_summary(target)
+    if persisted_errors:
+        raise RuntimeError(
+            "persisted series summary validation failed: " + "; ".join(persisted_errors)
+        )
+    logger.info("Series summary note %s: %s", status, target)
+    details = _series_details(source_set, provider, dry_run=False)
+    details.update(
+        {
+            "provider": generated.provider,
+            "model": generated.model,
+            "provider_version": generated.provider_version,
+            "prompt_envelope_version": SERIES_PROMPT_ENVELOPE_VERSION,
+            "prompt_source": prompt.source,
+            "summary_profile_source": profile.source,
+            "output_schema_source": profile.schema.source,
+            "output_schema_sha256": profile.schema.sha256,
+            "template_id": profile.template.template_id,
+            "template_version": profile.template.version,
+            "template_source": profile.template.source,
+            "template_sha256": profile.template.sha256,
+        }
+    )
+    return SummaryResult(
+        path=target,
+        source_path=source_set.sources[0].document.path,
+        status=status,
+        details=details,
+    )
+
+
+def synthesize_series(
+    source_values: list[str],
+    config: AppConfig,
+    *,
+    title: str | None = None,
+    explicit_output: Path | None = None,
+    overwrite: bool = False,
+    dry_run: bool = False,
+    provider: SummaryProvider | None = None,
+) -> SummaryResult:
+    started_at = datetime.now().astimezone()
+    active_provider = provider or provider_for_config(config)
+    try:
+        result = _synthesize_series(
+            source_values,
+            config,
+            title=title,
+            provider=active_provider,
+            explicit_output=explicit_output,
+            overwrite=overwrite,
+            dry_run=dry_run,
+        )
+    except Exception as exc:
+        if dry_run:
+            raise
+        report = _write_report(
+            config,
+            started_at=started_at,
+            status="failure",
+            error=str(exc),
+            command="synthesize",
+        )
+        raise RuntimeError(f"{exc}; report={report}") from exc
+    if dry_run:
+        return result
+    report = _write_report(
+        config,
+        started_at=started_at,
+        status="success",
+        result=result,
+        command="synthesize",
     )
     return result.model_copy(update={"report_path": report})

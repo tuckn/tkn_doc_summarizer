@@ -24,6 +24,7 @@ class AppConfig(BaseModel):
     codex_executable: str = "codex"
     codex_timeout_seconds: int = Field(default=1800, ge=1)
     max_input_bytes: int = Field(default=2_000_000, ge=1)
+    max_total_input_bytes: int = Field(default=8_000_000, ge=1)
     summary_profile: str = DEFAULT_SUMMARY_PROFILE
     summary_prompt: Path | None = None
 
@@ -64,6 +65,7 @@ def default_values() -> dict[str, Any]:
         "codex_executable": "codex",
         "codex_timeout_seconds": 1800,
         "max_input_bytes": 2_000_000,
+        "max_total_input_bytes": 8_000_000,
         "summary_profile": DEFAULT_SUMMARY_PROFILE,
         "summary_prompt": None,
     }
@@ -162,6 +164,7 @@ def public_config(config: AppConfig) -> dict[str, object]:
         "codex_executable": config.codex_executable,
         "codex_timeout_seconds": config.codex_timeout_seconds,
         "max_input_bytes": config.max_input_bytes,
+        "max_total_input_bytes": config.max_total_input_bytes,
         "summary_profile": config.summary_profile,
         "summary_prompt": str(config.summary_prompt) if config.summary_prompt else None,
     }

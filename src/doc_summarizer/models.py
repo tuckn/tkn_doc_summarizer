@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Self
+from typing import Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -20,11 +20,35 @@ class DocumentSource(StrictModel):
     published: str | None = None
     content: str
     source_sha256: str
+    source_size_bytes: int = Field(default=0, ge=0)
 
 
 class SummaryRequest(StrictModel):
     source: DocumentSource
     prompt_envelope_version: str
+
+
+class SeriesSource(StrictModel):
+    id: str = Field(pattern=r"^[A-Za-z][A-Za-z0-9_-]*$")
+    document: DocumentSource
+
+
+class DocumentSourceSet(StrictModel):
+    source_set_id: str
+    title: str = Field(min_length=1)
+    mode: Literal["series"]
+    cover: str | None = None
+    published: str | None = None
+    sources: list[SeriesSource] = Field(min_length=2)
+    source_set_sha256: str
+
+
+class SeriesSummaryRequest(StrictModel):
+    source_set: DocumentSourceSet
+    prompt_envelope_version: str
+
+
+SummaryGenerationRequest = SummaryRequest | SeriesSummaryRequest
 
 
 class SummarySubsection(StrictModel):

@@ -7,12 +7,12 @@ import pytest
 from doc_summarizer.config import AppConfig
 from doc_summarizer.models import (
     SummaryDocument,
-    SummaryRequest,
+    SummaryGenerationRequest,
     SummarySection,
     SummarySubsection,
 )
-from doc_summarizer.pipeline import summarize
-from doc_summarizer.prompting import PROMPT_ENVELOPE_VERSION, load_summary_prompt
+from doc_summarizer.pipeline import summarize, synthesize_series
+from doc_summarizer.prompting import load_summary_prompt
 from doc_summarizer.providers.base import ProviderResult
 from doc_summarizer.source import split_frontmatter
 from doc_summarizer.summary_resources import load_summary_profile
@@ -25,7 +25,7 @@ class FakeProvider:
         self.profile = load_summary_profile(profile_name, prompt=self.prompt)
         self.calls = 0
 
-    def generate(self, request: SummaryRequest) -> ProviderResult:
+    def generate(self, request: SummaryGenerationRequest) -> ProviderResult:
         self.calls += 1
         return ProviderResult(
             document=SummaryDocument(
@@ -53,7 +53,7 @@ class FakeProvider:
             provider_version="1.0",
             prompt_id=self.prompt.prompt_id,
             prompt_version=self.prompt.version,
-            prompt_envelope_version=PROMPT_ENVELOPE_VERSION,
+            prompt_envelope_version=request.prompt_envelope_version,
             prompt_source=self.prompt.source,
             prompt_sha256=self.prompt.sha256,
         )
@@ -87,6 +87,18 @@ def _source(tmp_path: Path) -> Path:
         encoding="utf-8",
     )
     return path
+
+
+def _series_sources(tmp_path: Path) -> list[Path]:
+    first = tmp_path / "part-1.md"
+    first.write_text(
+        "---\ntitle: Example article 1\ncover: https://example.com/cover.png\n"
+        "published: 2026-08-01\n---\n\n# Part 1\n\nFirst fact.",
+        encoding="utf-8",
+    )
+    second = tmp_path / "part-2.md"
+    second.write_text("# Part 2\n\nSecond fact and conclusion.", encoding="utf-8")
+    return [first, second]
 
 
 def test_create_validate_and_idempotent_rerun(tmp_path: Path) -> None:
@@ -123,6 +135,69 @@ def test_create_validate_and_idempotent_rerun(tmp_path: Path) -> None:
 
     second = summarize(str(source), _config(tmp_path), provider=provider)
     assert second.status == "unchanged"
+    assert provider.calls == 1
+
+
+def test_create_validate_and_idempotent_series_summary(tmp_path: Path) -> None:
+    sources = _series_sources(tmp_path)
+    provider = FakeProvider()
+
+    first = synthesize_series(
+        [str(path) for path in sources],
+        _config(tmp_path),
+        title="Complete example article",
+        provider=provider,
+    )
+
+    assert first.status == "created"
+    assert first.source_path == sources[0]
+    assert first.details["source_count"] == 2
+    assert not validate_summary(first.path)
+    metadata, _ = split_frontmatter(first.path.read_text(encoding="utf-8"))
+    assert metadata["schemaVersion"] == "6.0"
+    assert metadata["synthesisMode"] == "series"
+    assert len(metadata["sourceSetId"]) == 36
+    assert [entry["id"] for entry in metadata["sources"]] == ["S1", "S2"]
+    assert len(metadata["sourceSetSha256"]) == 64
+    assert provider.calls == 1
+
+    second = synthesize_series(
+        [str(path) for path in sources],
+        _config(tmp_path),
+        title="Complete example article",
+        provider=provider,
+    )
+
+    assert second.status == "unchanged"
+    assert provider.calls == 1
+
+
+def test_changed_series_source_requires_overwrite(tmp_path: Path) -> None:
+    sources = _series_sources(tmp_path)
+    provider = FakeProvider()
+    first = synthesize_series(
+        [str(path) for path in sources],
+        _config(tmp_path),
+        title="Complete example article",
+        provider=provider,
+    )
+    second_source = tmp_path / "part-2.md"
+    second_source.write_text(
+        second_source.read_text(encoding="utf-8") + "\nUpdated.",
+        encoding="utf-8",
+    )
+
+    assert validate_summary(first.path) == ["sources[2].sourceSha256 does not match its source"]
+
+    with pytest.raises(RuntimeError, match="explicit --overwrite"):
+        synthesize_series(
+            [str(path) for path in sources],
+            _config(tmp_path),
+            title="Complete example article",
+            provider=provider,
+        )
+
+    assert first.path.exists()
     assert provider.calls == 1
 
 

@@ -33,6 +33,7 @@ def test_five_layer_precedence(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     assert resolved.value_sources["model"] == "CLI options"
     assert resolved.value_sources["max_input_bytes"] == str(explicit)
     assert resolved.config.summary_profile == "default-ja"
+    assert resolved.config.max_total_input_bytes == 8_000_000
 
 
 def test_unknown_config_key_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

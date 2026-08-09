@@ -17,7 +17,7 @@ from doc_summarizer.config import (
     resolve_config,
 )
 from doc_summarizer.console_logging import ColorFormatter, log_success, supports_color
-from doc_summarizer.pipeline import summarize
+from doc_summarizer.pipeline import summarize, synthesize_series
 from doc_summarizer.prompting import initialize_user_prompt, load_summary_prompt
 from doc_summarizer.summary_resources import load_summary_profile
 from doc_summarizer.validation import validate_summary
@@ -63,6 +63,7 @@ def _common(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--codex-executable")
     parser.add_argument("--codex-timeout-seconds", type=int)
     parser.add_argument("--max-input-bytes", type=int)
+    parser.add_argument("--max-total-input-bytes", type=int)
     parser.add_argument(
         "--summary-profile",
         choices=BUILT_IN_SUMMARY_PROFILES,
@@ -124,6 +125,37 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _common(summary_parser)
 
+    synthesize_parser = commands.add_parser(
+        "synthesize",
+        help="generate one series summary from ordered file paths or clipped URLs",
+    )
+    synthesize_parser.add_argument(
+        "sources",
+        nargs="+",
+        metavar="SOURCE",
+        help="ordered local file path or URL stored in clipped Frontmatter; requires at least two",
+    )
+    synthesize_parser.add_argument(
+        "--title",
+        help="summary title; defaults to the first source title",
+    )
+    synthesize_parser.add_argument(
+        "--output",
+        type=Path,
+        help="exact output .md path; otherwise output_root and automatic naming are used",
+    )
+    synthesize_parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="regenerate and replace the matching series summary, including reviewed edits",
+    )
+    synthesize_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="resolve the ordered sources and target without Codex execution or writes",
+    )
+    _common(synthesize_parser)
+
     validate_parser = commands.add_parser("validate", help="validate a generated summary note")
     validate_parser.add_argument("path", type=Path)
     _verbosity(validate_parser)
@@ -164,6 +196,7 @@ def _resolved(args: argparse.Namespace) -> Any:
             "codex_executable",
             "codex_timeout_seconds",
             "max_input_bytes",
+            "max_total_input_bytes",
             "summary_profile",
             "summary_prompt",
         )
@@ -283,6 +316,29 @@ def main(argv: list[str] | None = None) -> int:
                 log_success(logger, "Summary is already current")
             else:
                 log_success(logger, "Summary completed successfully")
+            print(
+                json.dumps(
+                    result.model_dump(mode="json"),
+                    ensure_ascii=False,
+                    default=_json_default,
+                )
+            )
+            return 0
+        if args.command == "synthesize":
+            result = synthesize_series(
+                args.sources,
+                config,
+                title=args.title,
+                explicit_output=args.output,
+                overwrite=args.overwrite,
+                dry_run=args.dry_run,
+            )
+            if result.status == "planned":
+                logger.info("Dry run completed without writes")
+            elif result.status == "unchanged":
+                log_success(logger, "Series summary is already current")
+            else:
+                log_success(logger, "Series summary completed successfully")
             print(
                 json.dumps(
                     result.model_dump(mode="json"),

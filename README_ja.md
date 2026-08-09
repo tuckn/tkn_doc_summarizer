@@ -7,8 +7,8 @@ Markdown保存したWeb記事から、ソースに忠実な要約Markdownノー�
 URLはローカルにあるクリップ済みノートを特定する検索キーとして使い、このCLI自身は
 Webページを取得しません。
 
-入力ファイルの複製、編集、移動、削除は行いません。`summarize` が作る内容成果物は、
-要約Markdownノート1つだけです。
+入力ファイルの複製、編集、移動、削除は行いません。`summarize` または `synthesize` が
+作る内容成果物は、要約Markdownノート1つだけです。
 
 ## 必要環境
 
@@ -20,24 +20,23 @@ Webページを取得しません。
 
 ## インストール
 
-通常利用では、任意のdirectoryからリポジトリのpathを指定してインストールします。
+通常利用では、例示しているpathをこのリポジトリの実際のfolder pathへ置き換え、
+リポジトリルートへ移動してからインストールします。
 
 ```console
-uv tool install "C:\path\to\tkn_doc_summarizer"
+cd "C:\path\to\tkn_doc_summarizer"
+uv tool install .
 tkn-doc-summarizer --help
-tkn-doc-summarizer config show
 ```
-
-リポジトリルートで実行する場合は、`uv tool install .` でも同じです。
 
 通常のインストールでは、インストール時点のcode、package resource、dependencyが
 tool環境へ反映されます。`git pull` などでリポジトリを更新した後は、更新内容を
 反映するため再インストールします。
 
 ```console
-uv tool install "C:\path\to\tkn_doc_summarizer" --reinstall
+cd "C:\path\to\tkn_doc_summarizer"
+uv tool install . --reinstall
 tkn-doc-summarizer --help
-tkn-doc-summarizer config show
 ```
 
 `--force` は、実行ファイルのentry point競合を解消する場合など、tool自体の
@@ -49,7 +48,8 @@ tkn-doc-summarizer config show
 使用します。
 
 ```console
-uv tool install -e "C:\path\to\tkn_doc_summarizer" --reinstall
+cd "C:\path\to\tkn_doc_summarizer"
+uv tool install -e . --reinstall
 ```
 
 editable installationでは、通常のsource code変更に再インストールは不要です。
@@ -115,6 +115,16 @@ tkn-doc-summarizer summarize "https://example.com/article" --dry-run
 tkn-doc-summarizer summarize "C:\path\to\facts.md" --output "C:\path\to\summary.md"
 ```
 
+複数ページを1つの論理的な記事として要約するには、ページ順にsourceを列挙します。
+
+```console
+tkn-doc-summarizer synthesize "C:\path\to\page-1.md" "C:\path\to\page-2.md" --title "完全版Example記事" --dry-run
+tkn-doc-summarizer synthesize "C:\path\to\page-1.md" "C:\path\to\page-2.md" --title "完全版Example記事"
+```
+
+各sourceにはローカルpath、または `source_roots` からローカル解決できるクリップ済み
+記事URLを指定できます。`--title` は省略可能で、省略時は先頭sourceのタイトルを使います。
+
 ## コマンド
 
 ### `summarize SOURCE`
@@ -142,10 +152,31 @@ UTF-8のローカルソースを1件解決し、Codexへstructured JSON schema�
 成功時、`created`、`updated`、`unchanged` の状態、要約パス、sourceパス、
 検証情報、実行reportパスを含むJSONを返します。
 
+### `synthesize SOURCE SOURCE [...]`
+
+2件以上のsourceをページ順に列挙し、全ページから統合したseries要約を1つ作ります。
+ページ順はCLI引数の順序そのものであり、ファイル名やURLから推測しません。重複する
+ページ共通部分を除外しながら、ページをまたぐ論旨や後半の留保条件を保持します。
+source IDは `S1`、`S2`…として自動付与します。
+
+`--dry-run`、`--output`、`--output-root`、`--source-root`、
+`--summary-profile`、`--summary-prompt`、`--model`、`--overwrite` は
+`summarize` と同じwrite safety契約です。raw input合計には
+`max_total_input_bytes` が適用され、同じローカルファイルへ解決される重複entryは
+拒否します。`--title TITLE` で記事全体のタイトルを指定でき、省略時は先頭sourceの
+タイトルを使います。
+
+生成するschema 6.0 Frontmatterには、自動生成した安定source-set UUID、mode、
+順序付きローカルsource URI、各source SHA-256、正規化した `sourceSetSha256` を
+記録します。UUIDは順序付きの解決後ローカルURIから生成し、内容変更は
+`sourceSetSha256` で検出します。source変更後は明示的な `--overwrite` が必要で、
+レビュー済み出力を暗黙には置換しません。
+
 ### `validate PATH`
 
-出力schema、Frontmatterの順序とprovenance、本文section、review状態、
-source参照、source SHA-256をread-onlyで検証します。
+出力schema、Frontmatterの順序とprovenance、本文section、review状態、単一source、
+またはseriesの全順序付きsourceと各SHA-256をread-onlyで検証します。seriesでは
+`sourceSetSha256` も再計算します。
 
 ```console
 tkn-doc-summarizer validate "C:\path\to\summary.md"
@@ -252,6 +283,7 @@ YAMLの浮動小数点数へ変換させず、そのまま保持できます。
 | `codex_executable` | `codex` | 実行ファイルまたはshim名 |
 | `codex_timeout_seconds` | `1800` | 生成timeout秒 |
 | `max_input_bytes` | `2000000` | UTF-8 sourceの最大size |
+| `max_total_input_bytes` | `8000000` | 1 source setのsource合計最大byte数 |
 | `summary_profile` | `default-ja` | built-in言語/profile。`default-ja` または `default-en` |
 | `summary_prompt` | `null` | 選択profileのprompt、user prompt名、または絶対path |
 
