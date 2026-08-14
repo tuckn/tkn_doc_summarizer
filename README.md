@@ -72,6 +72,7 @@ source_roots:
 output_root: ~/.tkn/doc_summarizer/data/summaries
 reports_root: ~/.tkn/doc_summarizer/state/reports
 model: null
+source_path_format: native
 summary_profile: default-ja
 ```
 
@@ -200,9 +201,32 @@ generated title during generation.
 
 Series mode generates schema 6.0 and compare mode generates schema 7.0.
 Frontmatter records an automatically generated stable
-source-set UUID, mode, ordered local source URIs, every source SHA-256, and a
-canonical `sourceSetSha256`. The UUID is derived from the ordered resolved local
-URIs, while content changes are detected by `sourceSetSha256`. Changed source
+source-set UUID, mode, ordered local source references, every source SHA-256,
+and a canonical `sourceSetSha256`. `source_path_format` defaults to `native`.
+On Windows, native paths are YAML single-quoted so they can be copied directly
+into Explorer or the Run dialog:
+
+```yaml
+sources:
+  - id: "S1"
+    source: 'C:\path\to\page-1.md'
+```
+
+Set the following in `config.yaml` to emit the previous file URI form:
+
+```yaml
+source_path_format: file-uri
+```
+
+```yaml
+source: "file:///C:/path/to/page-1.md"
+```
+
+Native paths and `file:///C:/...` remain readable and valid regardless of the
+setting. Converting an existing note to the other representation requires
+`--overwrite`, so reviewed content is not rewritten implicitly. The UUID is
+derived stably from the ordered resolved local paths, while content changes are
+detected by `sourceSetSha256`. Changed source
 content requires explicit `--overwrite`, and reviewed output is never silently
 replaced.
 
@@ -328,6 +352,7 @@ sources, and unsupported providers fail closed.
 | `codex_timeout_seconds` | `1800` | Generation timeout |
 | `max_input_bytes` | `2000000` | Maximum UTF-8 source file size |
 | `max_total_input_bytes` | `8000000` | Maximum total source bytes for one source set |
+| `source_path_format` | `native` | Frontmatter local source reference: `native` or `file-uri` |
 | `summary_profile` | `default-ja` | Built-in language/profile: `default-ja` or `default-en` |
 | `summary_prompt` | `null` | Selected profile's prompt, user prompt filename, or absolute path |
 

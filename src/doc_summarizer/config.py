@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 APP_ID = "doc_summarizer"
 DEFAULT_SUMMARY_PROFILE = "default-ja"
 BUILT_IN_SUMMARY_PROFILES = ("default-ja", "default-en")
+SourcePathFormat = Literal["native", "file-uri"]
 
 
 class AppConfig(BaseModel):
@@ -25,6 +26,7 @@ class AppConfig(BaseModel):
     codex_timeout_seconds: int = Field(default=1800, ge=1)
     max_input_bytes: int = Field(default=2_000_000, ge=1)
     max_total_input_bytes: int = Field(default=8_000_000, ge=1)
+    source_path_format: SourcePathFormat = "native"
     summary_profile: str = DEFAULT_SUMMARY_PROFILE
     summary_prompt: Path | None = None
 
@@ -66,6 +68,7 @@ def default_values() -> dict[str, Any]:
         "codex_timeout_seconds": 1800,
         "max_input_bytes": 2_000_000,
         "max_total_input_bytes": 8_000_000,
+        "source_path_format": "native",
         "summary_profile": DEFAULT_SUMMARY_PROFILE,
         "summary_prompt": None,
     }
@@ -165,6 +168,7 @@ def public_config(config: AppConfig) -> dict[str, object]:
         "codex_timeout_seconds": config.codex_timeout_seconds,
         "max_input_bytes": config.max_input_bytes,
         "max_total_input_bytes": config.max_total_input_bytes,
+        "source_path_format": config.source_path_format,
         "summary_profile": config.summary_profile,
         "summary_prompt": str(config.summary_prompt) if config.summary_prompt else None,
     }

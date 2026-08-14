@@ -34,6 +34,39 @@ def test_five_layer_precedence(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     assert resolved.value_sources["max_input_bytes"] == str(explicit)
     assert resolved.config.summary_profile == "default-ja"
     assert resolved.config.max_total_input_bytes == 8_000_000
+    assert resolved.config.source_path_format == "native"
+
+
+def test_source_path_format_can_be_selected_in_config(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        config_module,
+        "global_config_path",
+        lambda: tmp_path / "missing-global.yaml",
+    )
+    explicit = tmp_path / "config.yaml"
+    explicit.write_text("source_path_format: file-uri\n", encoding="utf-8")
+
+    resolved = resolve_config(cwd=tmp_path, explicit_config=explicit)
+
+    assert resolved.config.source_path_format == "file-uri"
+    assert resolved.value_sources["source_path_format"] == str(explicit)
+
+
+def test_unknown_source_path_format_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        config_module,
+        "global_config_path",
+        lambda: tmp_path / "missing-global.yaml",
+    )
+
+    with pytest.raises(ValueError, match="source_path_format"):
+        resolve_config(cwd=tmp_path, overrides={"source_path_format": "unknown"})
 
 
 def test_unknown_config_key_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

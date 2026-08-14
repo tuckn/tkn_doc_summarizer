@@ -72,6 +72,7 @@ source_roots:
 output_root: ~/.tkn/doc_summarizer/data/summaries
 reports_root: ~/.tkn/doc_summarizer/state/reports
 model: null
+source_path_format: native
 summary_profile: default-ja
 ```
 
@@ -190,9 +191,32 @@ Frontmatter、H1、自動ファイル名へ使用するoverrideです。省略�
 使った暫定値です。JSONの `generated_title_pending` が `true` になり、実生成時のpathは
 生成タイトルに応じて確定します。
 
-seriesはschema 6.0、compareはschema 7.0を生成します。Frontmatterには、自動生成した安定source-set UUID、mode、
-順序付きローカルsource URI、各source SHA-256、正規化した `sourceSetSha256` を
-記録します。UUIDは順序付きの解決後ローカルURIから生成し、内容変更は
+seriesはschema 6.0、compareはschema 7.0を生成します。Frontmatterには、自動生成した
+安定source-set UUID、mode、順序付きローカルsource参照、各source SHA-256、正規化した
+`sourceSetSha256` を記録します。`source_path_format` の既定値は `native` です。
+Windowsでは、pathをコピーしてExplorerやOSの「ファイル名を指定して実行」へ
+貼り付けやすいよう、次のようにYAMLのシングルクォートで囲みます。
+
+```yaml
+sources:
+  - id: "S1"
+    source: 'C:\path\to\page-1.md'
+```
+
+`config.yaml` で次のように指定すると、従来のfile URI形式で出力できます。
+
+```yaml
+source_path_format: file-uri
+```
+
+```yaml
+source: "file:///C:/path/to/page-1.md"
+```
+
+設定値にかかわらず、既存noteのOS pathと `file:///C:/...` はどちらも読み取り・検証
+できます。既存noteを別形式へ変換する場合は、レビュー済み内容を暗黙に書き換えない
+ため `--overwrite` が必要です。UUIDは順序付きの
+解決後ローカルpathから安定生成し、内容変更は
 `sourceSetSha256` で検出します。source変更後は明示的な `--overwrite` が必要で、
 レビュー済み出力を暗黙には置換しません。
 
@@ -308,6 +332,7 @@ YAMLの浮動小数点数へ変換させず、そのまま保持できます。
 | `codex_timeout_seconds` | `1800` | 生成timeout秒 |
 | `max_input_bytes` | `2000000` | UTF-8 sourceの最大size |
 | `max_total_input_bytes` | `8000000` | 1 source setのsource合計最大byte数 |
+| `source_path_format` | `native` | Frontmatterのローカルsource参照。`native` または `file-uri` |
 | `summary_profile` | `default-ja` | built-in言語/profile。`default-ja` または `default-en` |
 | `summary_prompt` | `null` | 選択profileのprompt、user prompt名、または絶対path |
 

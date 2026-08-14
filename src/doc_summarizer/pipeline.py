@@ -9,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from doc_summarizer.config import AppConfig
+from doc_summarizer.config import AppConfig, SourcePathFormat
 from doc_summarizer.io import atomic_write
 from doc_summarizer.models import (
     ComparisonRequest,
@@ -23,10 +23,11 @@ from doc_summarizer.naming import build_output_path
 from doc_summarizer.notes import (
     REVIEW_STATUSES,
     frontmatter_datetime,
-    path_to_file_uri,
     render_comparison_summary,
     render_series_summary,
     render_summary,
+    source_reference_format,
+    source_reference_to_path,
 )
 from doc_summarizer.prompting import (
     COMPARISON_PROMPT_ENVELOPE_VERSION,
@@ -97,7 +98,7 @@ def _candidate_metadata(path: Path) -> dict[str, Any] | None:
 def _find_existing(
     output_root: Path,
     *,
-    source_uri: str,
+    source_path: Path,
     profile_name: str,
     prompt_id: str,
 ) -> Path | None:
@@ -108,8 +109,14 @@ def _find_existing(
         metadata = _candidate_metadata(candidate)
         if metadata is None:
             continue
+        try:
+            same_source = source_reference_to_path(str(metadata.get("source") or "")).resolve() == (
+                source_path.resolve()
+            )
+        except ValueError:
+            same_source = False
         if (
-            metadata.get("source") == source_uri
+            same_source
             and str(metadata.get("summaryProfile") or "") == profile_name
             and str(metadata.get("promptId") or "") == prompt_id
         ):
@@ -128,7 +135,6 @@ def _target_path(
     provider: SummaryProvider,
     explicit_output: Path | None,
 ) -> Path:
-    source_uri = path_to_file_uri(source.path)
     if explicit_output is not None:
         target = explicit_output.expanduser()
         target = target if target.is_absolute() else (Path.cwd() / target).resolve()
@@ -137,7 +143,7 @@ def _target_path(
         return target
     existing = _find_existing(
         config.output_root,
-        source_uri=source_uri,
+        source_path=source.path,
         profile_name=provider.profile.name,
         prompt_id=provider.prompt.prompt_id,
     )
@@ -156,13 +162,19 @@ def _target_path(
 def _validate_existing_identity(
     metadata: dict[str, Any],
     *,
-    source_uri: str,
+    source_path: Path,
     profile_name: str,
     prompt_id: str,
     target: Path,
 ) -> None:
+    try:
+        same_source = source_reference_to_path(str(metadata.get("source") or "")).resolve() == (
+            source_path.resolve()
+        )
+    except ValueError:
+        same_source = False
     if (
-        metadata.get("source") != source_uri
+        not same_source
         or str(metadata.get("summaryProfile") or "") != profile_name
         or str(metadata.get("promptId") or "") != prompt_id
     ):
@@ -180,11 +192,13 @@ def _is_current(
     prompt_sha256: str,
     profile_sha256: str,
     requested_model: str | None,
+    source_path_format: SourcePathFormat,
 ) -> bool:
     generator = str(metadata.get("generator") or "")
     model_matches = requested_model is None or generator == f"Codex ({requested_model})"
     return (
         metadata.get("sourceSha256") == source.source_sha256
+        and source_reference_format(str(metadata.get("source") or "")) == source_path_format
         and str(metadata.get("promptVersion") or "") == prompt_version
         and metadata.get("promptSha256") == prompt_sha256
         and metadata.get("summaryProfileSha256") == profile_sha256
@@ -244,7 +258,6 @@ def _summarize(
     prompt = provider.prompt
     profile = provider.profile
     target = _target_path(source, config, provider, explicit_output)
-    source_uri = path_to_file_uri(source.path)
     existing_metadata: dict[str, Any] | None = None
     if target.exists():
         existing_metadata = _candidate_metadata(target)
@@ -252,7 +265,7 @@ def _summarize(
             raise FileExistsError(f"existing output is not a readable generated summary: {target}")
         _validate_existing_identity(
             existing_metadata,
-            source_uri=source_uri,
+            source_path=source.path,
             profile_name=profile.name,
             prompt_id=prompt.prompt_id,
             target=target,
@@ -265,6 +278,7 @@ def _summarize(
             prompt_sha256=prompt.sha256,
             profile_sha256=profile.sha256,
             requested_model=config.model,
+            source_path_format=config.source_path_format,
         )
         if current and not existing_errors and not overwrite:
             logger.info("Summary note is already current: %s", target)
@@ -280,6 +294,7 @@ def _summarize(
                     "prompt_sha256": prompt.sha256,
                     "summary_profile": profile.name,
                     "summary_profile_sha256": profile.sha256,
+                    "source_path_format": config.source_path_format,
                     "dry_run": dry_run,
                 },
             )
@@ -314,6 +329,7 @@ def _summarize(
                 "prompt_sha256": prompt.sha256,
                 "summary_profile": profile.name,
                 "summary_profile_sha256": profile.sha256,
+                "source_path_format": config.source_path_format,
                 "dry_run": True,
             },
         )
@@ -348,6 +364,7 @@ def _summarize(
         generator=generated.generator,
         profile=profile,
         prompt_envelope_version=PROMPT_ENVELOPE_VERSION,
+        source_path_format=config.source_path_format,
         note_id=note_id,
         created_at=created_at,
     )
@@ -377,6 +394,7 @@ def _summarize(
             "summary_profile": profile.name,
             "summary_profile_source": profile.source,
             "summary_profile_sha256": profile.sha256,
+            "source_path_format": config.source_path_format,
             "output_schema_source": profile.schema.source,
             "output_schema_sha256": profile.schema.sha256,
             "template_id": profile.template.template_id,
@@ -517,9 +535,16 @@ def _is_current_series(
     prompt_sha256: str,
     profile_sha256: str,
     requested_model: str | None,
+    source_path_format: SourcePathFormat,
 ) -> bool:
     generator = str(metadata.get("generator") or "")
     model_matches = requested_model is None or generator == f"Codex ({requested_model})"
+    sources = metadata.get("sources")
+    format_matches = isinstance(sources, list) and all(
+        isinstance(entry, dict)
+        and source_reference_format(str(entry.get("source") or "")) == source_path_format
+        for entry in sources
+    )
     return (
         str(metadata.get("title") or "") == source_set.title
         and metadata.get("sourceSetSha256") == source_set.source_set_sha256
@@ -528,6 +553,7 @@ def _is_current_series(
         and metadata.get("summaryProfileSha256") == profile_sha256
         and metadata.get("promptEnvelopeVersion") == SERIES_PROMPT_ENVELOPE_VERSION
         and model_matches
+        and format_matches
     )
 
 
@@ -536,6 +562,7 @@ def _series_details(
     provider: SummaryProvider,
     *,
     dry_run: bool,
+    source_path_format: SourcePathFormat,
     generated_title_pending: bool = False,
 ) -> dict[str, object]:
     prompt = provider.prompt
@@ -547,6 +574,7 @@ def _series_details(
         "source_set_sha256": source_set.source_set_sha256,
         "source_count": len(source_set.sources),
         "source_paths": [str(entry.document.path) for entry in source_set.sources],
+        "source_path_format": source_path_format,
         "title": source_set.title,
         "generated_title_pending": generated_title_pending,
         "prompt_id": prompt.prompt_id,
@@ -617,6 +645,7 @@ def _synthesize_series(
             prompt_sha256=prompt.sha256,
             profile_sha256=profile.sha256,
             requested_model=config.model,
+            source_path_format=config.source_path_format,
         )
         if current and not existing_errors and not overwrite:
             logger.info("Series summary note is already current: %s", target)
@@ -624,7 +653,12 @@ def _synthesize_series(
                 path=target,
                 source_path=source_set.sources[0].document.path,
                 status="unchanged",
-                details=_series_details(source_set, provider, dry_run=dry_run),
+                details=_series_details(
+                    source_set,
+                    provider,
+                    dry_run=dry_run,
+                    source_path_format=config.source_path_format,
+                ),
             )
         if not overwrite:
             reason = (
@@ -649,6 +683,7 @@ def _synthesize_series(
             source_set,
             provider,
             dry_run=True,
+            source_path_format=config.source_path_format,
             generated_title_pending=generated_target_pending,
         )
         details["planned_status"] = action
@@ -700,6 +735,7 @@ def _synthesize_series(
         generator=generated.generator,
         profile=profile,
         prompt_envelope_version=SERIES_PROMPT_ENVELOPE_VERSION,
+        source_path_format=config.source_path_format,
         note_id=note_id,
         created_at=created_at,
     )
@@ -713,7 +749,12 @@ def _synthesize_series(
             "persisted series summary validation failed: " + "; ".join(persisted_errors)
         )
     logger.info("Series summary note %s: %s", status, target)
-    details = _series_details(source_set, provider, dry_run=False)
+    details = _series_details(
+        source_set,
+        provider,
+        dry_run=False,
+        source_path_format=config.source_path_format,
+    )
     details.update(
         {
             "provider": generated.provider,
@@ -871,9 +912,16 @@ def _is_current_comparison(
     prompt_sha256: str,
     profile_sha256: str,
     requested_model: str | None,
+    source_path_format: SourcePathFormat,
 ) -> bool:
     generator = str(metadata.get("generator") or "")
     model_matches = requested_model is None or generator == f"Codex ({requested_model})"
+    sources = metadata.get("sources")
+    format_matches = isinstance(sources, list) and all(
+        isinstance(entry, dict)
+        and source_reference_format(str(entry.get("source") or "")) == source_path_format
+        for entry in sources
+    )
     return (
         str(metadata.get("title") or "") == source_set.title
         and metadata.get("sourceSetSha256") == source_set.source_set_sha256
@@ -882,6 +930,7 @@ def _is_current_comparison(
         and metadata.get("summaryProfileSha256") == profile_sha256
         and metadata.get("promptEnvelopeVersion") == COMPARISON_PROMPT_ENVELOPE_VERSION
         and model_matches
+        and format_matches
     )
 
 
@@ -890,6 +939,7 @@ def _comparison_details(
     provider: ComparisonProvider,
     *,
     dry_run: bool,
+    source_path_format: SourcePathFormat,
     generated_title_pending: bool = False,
 ) -> dict[str, object]:
     return {
@@ -899,6 +949,7 @@ def _comparison_details(
         "source_set_sha256": source_set.source_set_sha256,
         "source_count": len(source_set.sources),
         "source_paths": [str(entry.document.path) for entry in source_set.sources],
+        "source_path_format": source_path_format,
         "title": source_set.title,
         "generated_title_pending": generated_title_pending,
         "prompt_id": provider.prompt.prompt_id,
@@ -969,6 +1020,7 @@ def _synthesize_compare(
             prompt_sha256=prompt.sha256,
             profile_sha256=profile.sha256,
             requested_model=config.model,
+            source_path_format=config.source_path_format,
         )
         if current and not existing_errors and not overwrite:
             logger.info("Comparison note is already current: %s", target)
@@ -976,7 +1028,12 @@ def _synthesize_compare(
                 path=target,
                 source_path=source_set.sources[0].document.path,
                 status="unchanged",
-                details=_comparison_details(source_set, provider, dry_run=dry_run),
+                details=_comparison_details(
+                    source_set,
+                    provider,
+                    dry_run=dry_run,
+                    source_path_format=config.source_path_format,
+                ),
             )
         if not overwrite:
             reason = (
@@ -1001,6 +1058,7 @@ def _synthesize_compare(
             source_set,
             provider,
             dry_run=True,
+            source_path_format=config.source_path_format,
             generated_title_pending=generated_target_pending,
         )
         details["planned_status"] = action
@@ -1060,6 +1118,7 @@ def _synthesize_compare(
         generator=generated.generator,
         profile=profile,
         prompt_envelope_version=COMPARISON_PROMPT_ENVELOPE_VERSION,
+        source_path_format=config.source_path_format,
         note_id=note_id,
         created_at=created_at,
     )
@@ -1071,7 +1130,12 @@ def _synthesize_compare(
     if persisted_errors:
         raise RuntimeError("persisted comparison validation failed: " + "; ".join(persisted_errors))
     logger.info("Comparison note %s: %s", status, target)
-    details = _comparison_details(source_set, provider, dry_run=False)
+    details = _comparison_details(
+        source_set,
+        provider,
+        dry_run=False,
+        source_path_format=config.source_path_format,
+    )
     details.update(
         {
             "provider": generated.provider,

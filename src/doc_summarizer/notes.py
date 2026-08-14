@@ -11,6 +11,7 @@ from typing import Any
 from urllib.parse import unquote, urlparse
 
 from doc_summarizer.comparison_resources import ComparisonProfile, render_comparison_template
+from doc_summarizer.config import SourcePathFormat
 from doc_summarizer.models import (
     ComparisonDocument,
     DocumentSource,
@@ -38,6 +39,10 @@ def yaml_quote(value: str) -> str:
     return json.dumps(value, ensure_ascii=False)
 
 
+def yaml_single_quote(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
+
+
 def yaml_optional(value: str | None) -> str:
     return yaml_quote(value) if value else "null"
 
@@ -62,14 +67,45 @@ def path_to_file_uri(path: Path) -> str:
     return path.absolute().as_uri()
 
 
-def file_uri_to_path(value: str) -> Path:
+def path_to_native_reference(path: Path) -> str:
+    return str(path.resolve())
+
+
+def path_to_source_reference(path: Path, source_path_format: SourcePathFormat) -> str:
+    if source_path_format == "file-uri":
+        return path_to_file_uri(path)
+    return path_to_native_reference(path)
+
+
+def yaml_source_reference(path: Path, source_path_format: SourcePathFormat) -> str:
+    value = path_to_source_reference(path, source_path_format)
+    return yaml_quote(value) if source_path_format == "file-uri" else yaml_single_quote(value)
+
+
+def source_reference_format(value: str) -> SourcePathFormat:
+    return "file-uri" if urlparse(value).scheme == "file" else "native"
+
+
+def source_reference_to_path(value: str) -> Path:
+    if re.match(r"^[A-Za-z]:[\\/]", value) or value.startswith("\\\\"):
+        return Path(value)
     parsed = urlparse(value)
-    if parsed.scheme != "file":
-        raise ValueError("source must be a file URI")
-    path = unquote(parsed.path)
-    if re.match(r"^/[A-Za-z]:/", path):
-        path = path[1:]
-    return Path(path)
+    if parsed.scheme == "file":
+        path = unquote(parsed.path)
+        if re.match(r"^/[A-Za-z]:/", path):
+            path = path[1:]
+        return Path(path)
+    if parsed.scheme:
+        raise ValueError("source must be an absolute OS path or file URI")
+    native_path = Path(value)
+    if not native_path.is_absolute():
+        raise ValueError("source must be an absolute OS path or file URI")
+    return native_path
+
+
+def file_uri_to_path(value: str) -> Path:
+    """Read legacy file URIs and current native source paths."""
+    return source_reference_to_path(value)
 
 
 def render_summary(
@@ -80,6 +116,7 @@ def render_summary(
     generator: str,
     profile: SummaryProfile,
     prompt_envelope_version: str,
+    source_path_format: SourcePathFormat,
     note_id: str | None = None,
     created_at: datetime | None = None,
 ) -> str:
@@ -97,7 +134,7 @@ def render_summary(
         f"cover: {yaml_optional(source.cover)}",
         f"url: {yaml_quote(canonical_reference)}",
         "cliptool: Codex",
-        f"source: {yaml_quote(source_uri)}",
+        f"source: {yaml_source_reference(source.path, source_path_format)}",
         f"sourceSha256: {source.source_sha256}",
         f"generator: {yaml_quote(generator)}",
         f"promptId: {prompt.prompt_id}",
@@ -171,6 +208,7 @@ def render_series_summary(
     generator: str,
     profile: SummaryProfile,
     prompt_envelope_version: str,
+    source_path_format: SourcePathFormat,
     note_id: str | None = None,
     created_at: datetime | None = None,
 ) -> str:
@@ -199,7 +237,7 @@ def render_series_summary(
         frontmatter_lines.extend(
             [
                 f"  - id: {yaml_quote(entry.id)}",
-                f"    source: {yaml_quote(path_to_file_uri(source.path))}",
+                f"    source: {yaml_source_reference(source.path, source_path_format)}",
                 f"    sourceSha256: {source.source_sha256}",
             ]
         )
@@ -244,6 +282,7 @@ def render_comparison_summary(
     generator: str,
     profile: ComparisonProfile,
     prompt_envelope_version: str,
+    source_path_format: SourcePathFormat,
     note_id: str | None = None,
     created_at: datetime | None = None,
 ) -> str:
@@ -272,7 +311,7 @@ def render_comparison_summary(
         frontmatter_lines.extend(
             [
                 f"  - id: {yaml_quote(entry.id)}",
-                f"    source: {yaml_quote(path_to_file_uri(source.path))}",
+                f"    source: {yaml_source_reference(source.path, source_path_format)}",
                 f"    sourceSha256: {source.source_sha256}",
             ]
         )

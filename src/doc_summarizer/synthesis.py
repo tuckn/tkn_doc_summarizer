@@ -9,6 +9,7 @@ from typing import Literal
 
 from doc_summarizer.io import sha256_bytes
 from doc_summarizer.models import DocumentSourceSet, SeriesSource
+from doc_summarizer.notes import path_to_file_uri, source_reference_to_path
 from doc_summarizer.source import resolve_source
 
 SynthesisMode = Literal["series", "compare"]
@@ -42,12 +43,29 @@ def source_set_sha256(source_set: DocumentSourceSet) -> str:
 
 
 def metadata_source_set_sha256(metadata: dict[str, object]) -> str:
+    raw_sources = metadata.get("sources")
+    normalized_sources: object = raw_sources
+    if isinstance(raw_sources, list):
+        normalized_entries: list[object] = []
+        for raw_entry in raw_sources:
+            if not isinstance(raw_entry, dict):
+                normalized_entries.append(raw_entry)
+                continue
+            entry = dict(raw_entry)
+            try:
+                entry["source"] = path_to_file_uri(
+                    source_reference_to_path(str(entry.get("source") or ""))
+                )
+            except ValueError:
+                pass
+            normalized_entries.append(entry)
+        normalized_sources = normalized_entries
     identity = {
         "sourceSetId": str(metadata.get("sourceSetId") or ""),
         "mode": str(metadata.get("synthesisMode") or ""),
         "cover": metadata.get("cover"),
         "published": metadata.get("sourceSetPublished"),
-        "sources": metadata.get("sources"),
+        "sources": normalized_sources,
     }
     payload = json.dumps(
         identity,

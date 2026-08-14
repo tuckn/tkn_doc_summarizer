@@ -13,6 +13,7 @@ from doc_summarizer.models import (
     ComparisonRequest,
     SourceSpecificInsight,
 )
+from doc_summarizer.notes import path_to_file_uri
 from doc_summarizer.pipeline import synthesize_compare
 from doc_summarizer.providers.base import ComparisonProviderResult
 from doc_summarizer.source import split_frontmatter
@@ -107,6 +108,9 @@ def test_create_validate_and_idempotent_comparison(tmp_path: Path) -> None:
     assert metadata["synthesisMode"] == "compare"
     assert metadata["title"] == "記事比較"
     assert metadata["summaryProfile"] == "compare-ja"
+    assert [entry["source"] for entry in metadata["sources"]] == [
+        str(path.resolve()) for path in sources
+    ]
     text = first.path.read_text(encoding="utf-8")
     assert "## 2. 共通概念" in text
     assert "両記事は共通概念を重視する。 [S1, S2]" in text
@@ -172,6 +176,24 @@ def test_english_comparison_profile_renders_english_sections(tmp_path: Path) -> 
     assert "## 1. Comparison summary" in text
     assert "## 4. Differences and disagreements" in text
     assert not validate_summary(result.path)
+
+
+def test_comparison_file_uri_config_writes_file_uri_sources(tmp_path: Path) -> None:
+    sources = _sources(tmp_path)
+    config = _config(tmp_path).model_copy(update={"source_path_format": "file-uri"})
+
+    result = synthesize_compare(
+        [str(path) for path in sources],
+        config,
+        title="記事比較",
+        provider=FakeComparisonProvider(),
+    )
+
+    metadata, _ = split_frontmatter(result.path.read_text(encoding="utf-8"))
+    assert [entry["source"] for entry in metadata["sources"]] == [
+        path_to_file_uri(path) for path in sources
+    ]
+    assert result.details["source_path_format"] == "file-uri"
 
 
 def test_comparison_rejects_custom_summary_prompt(tmp_path: Path) -> None:

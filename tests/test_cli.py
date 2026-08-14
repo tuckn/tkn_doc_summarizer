@@ -153,6 +153,8 @@ def test_config_show_reports_summary_profile_resources(
     comparison = payload["values"]["comparison_profile"]
     assert comparison["name"] == "compare-ja"
     assert comparison["source"].endswith("comparison_profiles/default-ja")
+    assert payload["values"]["source_path_format"] == "native"
+    assert payload["value_sources"]["source_path_format"] == "built-in defaults"
 
 
 def test_config_show_accepts_cli_summary_profile_override(

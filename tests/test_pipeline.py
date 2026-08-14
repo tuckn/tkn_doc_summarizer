@@ -11,6 +11,7 @@ from doc_summarizer.models import (
     SummarySection,
     SummarySubsection,
 )
+from doc_summarizer.notes import path_to_file_uri
 from doc_summarizer.pipeline import summarize, synthesize_series
 from doc_summarizer.prompting import load_summary_prompt
 from doc_summarizer.providers.base import ProviderResult
@@ -116,6 +117,8 @@ def test_create_validate_and_idempotent_rerun(tmp_path: Path) -> None:
     assert metadata["schemaVersion"] == "5.0"
     assert metadata["promptVersion"] == "3.0"
     assert metadata["summaryProfile"] == "default-ja"
+    assert metadata["source"] == str(source.resolve())
+    assert f"source: '{source.resolve()}'" in text
     assert metadata["summaryProfileSha256"] == provider.profile.sha256
     assert metadata["outputSchemaSha256"] == provider.profile.schema.sha256
     assert metadata["templateId"] == provider.profile.template.template_id
@@ -160,6 +163,10 @@ def test_create_validate_and_idempotent_series_summary(tmp_path: Path) -> None:
     assert metadata["title"] == "Complete example article"
     assert len(metadata["sourceSetId"]) == 36
     assert [entry["id"] for entry in metadata["sources"]] == ["S1", "S2"]
+    assert [entry["source"] for entry in metadata["sources"]] == [
+        str(path.resolve()) for path in sources
+    ]
+    assert f"    source: '{sources[0].resolve()}'" in first.path.read_text(encoding="utf-8")
     assert len(metadata["sourceSetSha256"]) == 64
     assert provider.calls == 1
 
@@ -169,9 +176,104 @@ def test_create_validate_and_idempotent_series_summary(tmp_path: Path) -> None:
         title="Complete example article",
         provider=provider,
     )
-
     assert second.status == "unchanged"
     assert provider.calls == 1
+
+
+def test_legacy_file_uri_source_reference_remains_current(tmp_path: Path) -> None:
+    source = _source(tmp_path)
+    provider = FakeProvider()
+    first = summarize(str(source), _config(tmp_path), provider=provider)
+    text = first.path.read_text(encoding="utf-8")
+    text = text.replace(
+        f"source: '{source.resolve()}'",
+        f'source: "{path_to_file_uri(source)}"',
+    )
+    first.path.write_text(text, encoding="utf-8")
+
+    assert not validate_summary(first.path)
+    file_uri_config = _config(tmp_path).model_copy(update={"source_path_format": "file-uri"})
+    second = summarize(str(source), file_uri_config, provider=provider)
+    assert second.status == "unchanged"
+    assert second.path == first.path
+    assert provider.calls == 1
+
+
+def test_legacy_series_file_uri_references_remain_valid(tmp_path: Path) -> None:
+    sources = _series_sources(tmp_path)
+    provider = FakeProvider()
+    result = synthesize_series(
+        [str(path) for path in sources],
+        _config(tmp_path),
+        title="Complete example article",
+        provider=provider,
+    )
+    text = result.path.read_text(encoding="utf-8")
+    for source in sources:
+        text = text.replace(
+            f"source: '{source.resolve()}'",
+            f'source: "{path_to_file_uri(source)}"',
+        )
+    result.path.write_text(text, encoding="utf-8")
+
+    assert not validate_summary(result.path)
+
+    file_uri_config = _config(tmp_path).model_copy(update={"source_path_format": "file-uri"})
+    second = synthesize_series(
+        [str(path) for path in sources],
+        file_uri_config,
+        title="Complete example article",
+        provider=provider,
+    )
+
+    assert second.status == "unchanged"
+    assert second.path == result.path
+    assert provider.calls == 1
+
+
+def test_file_uri_config_writes_file_uri_and_requires_overwrite_to_convert(
+    tmp_path: Path,
+) -> None:
+    source = _source(tmp_path)
+    provider = FakeProvider()
+    native_config = _config(tmp_path)
+    file_uri_config = native_config.model_copy(update={"source_path_format": "file-uri"})
+    summarize(str(source), native_config, provider=provider)
+
+    with pytest.raises(RuntimeError, match="explicit --overwrite"):
+        summarize(str(source), file_uri_config, provider=provider)
+
+    updated = summarize(
+        str(source),
+        file_uri_config,
+        provider=provider,
+        overwrite=True,
+    )
+    text = updated.path.read_text(encoding="utf-8")
+    metadata, _ = split_frontmatter(text)
+    assert updated.status == "updated"
+    assert metadata["source"] == path_to_file_uri(source)
+    assert f'source: "{path_to_file_uri(source)}"' in text
+    assert provider.calls == 2
+
+
+def test_series_file_uri_config_writes_file_uri_sources(tmp_path: Path) -> None:
+    sources = _series_sources(tmp_path)
+    provider = FakeProvider()
+    config = _config(tmp_path).model_copy(update={"source_path_format": "file-uri"})
+
+    result = synthesize_series(
+        [str(path) for path in sources],
+        config,
+        title="Complete example article",
+        provider=provider,
+    )
+
+    metadata, _ = split_frontmatter(result.path.read_text(encoding="utf-8"))
+    assert [entry["source"] for entry in metadata["sources"]] == [
+        path_to_file_uri(path) for path in sources
+    ]
+    assert result.details["source_path_format"] == "file-uri"
 
 
 def test_series_uses_generated_title_when_title_is_omitted(tmp_path: Path) -> None:

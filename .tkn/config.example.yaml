@@ -16,6 +16,9 @@ codex_timeout_seconds: 1800
 max_input_bytes: 2000000
 max_total_input_bytes: 8000000
 
+# Frontmatter local source path format: native or file-uri.
+source_path_format: native
+
 # Built-in language/profile: default-ja or default-en.
 summary_profile: default-ja
 
