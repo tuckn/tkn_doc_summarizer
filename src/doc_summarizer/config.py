@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from datetime import datetime
+from importlib.resources import files
 from pathlib import Path
 from typing import Any, Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from doc_summarizer.io import atomic_write
 
 APP_ID = "doc_summarizer"
 DEFAULT_SUMMARY_PROFILE = "default-ja"
@@ -45,6 +50,13 @@ class ResolvedConfig(BaseModel):
     value_sources: dict[str, str]
 
 
+@dataclass(frozen=True)
+class ConfigInitResult:
+    status: str
+    path: Path
+    backup_path: Path | None = None
+
+
 def user_root() -> Path:
     return Path.home() / ".tkn" / APP_ID
 
@@ -55,6 +67,41 @@ def user_prompts_root() -> Path:
 
 def global_config_path() -> Path:
     return user_root() / "config.yaml"
+
+
+def config_example_bytes() -> bytes:
+    resource_name = "resources/config.example.yaml"
+    resource = files("doc_summarizer").joinpath(resource_name)
+    try:
+        return resource.read_bytes()
+    except (OSError, FileNotFoundError) as exc:
+        raise RuntimeError(
+            f"built-in configuration example is unavailable: {resource_name}: {exc}"
+        ) from exc
+
+
+def initialize_user_config(*, force: bool = False) -> ConfigInitResult:
+    path = global_config_path()
+    payload = config_example_bytes()
+    if not path.exists():
+        status = atomic_write(path, payload)
+        return ConfigInitResult(status=status, path=path)
+    if path.read_bytes() == payload:
+        return ConfigInitResult(status="unchanged", path=path)
+    if not force:
+        raise FileExistsError(
+            f"refusing to overwrite edited configuration: {path}; "
+            "re-run with --force to create a backup and replace it"
+        )
+    timestamp = datetime.now().astimezone().strftime("%Y%m%dT%H%M%S%f%z")
+    backup_path = path.with_name(f"{path.name}.{timestamp}.bak")
+    atomic_write(backup_path, path.read_bytes())
+    status = atomic_write(path, payload, overwrite=True)
+    return ConfigInitResult(
+        status="replaced" if status == "updated" else status,
+        path=path,
+        backup_path=backup_path,
+    )
 
 
 def default_values() -> dict[str, Any]:

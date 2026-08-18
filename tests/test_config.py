@@ -5,7 +5,64 @@ from pathlib import Path
 import pytest
 
 import doc_summarizer.config as config_module
-from doc_summarizer.config import resolve_config
+from doc_summarizer.config import (
+    config_example_bytes,
+    initialize_user_config,
+    resolve_config,
+)
+
+
+def test_config_example_is_packaged_and_valid() -> None:
+    payload = config_example_bytes()
+
+    assert b"source_roots:" in payload
+    assert b"summary_profile: default-ja" in payload
+
+
+def test_config_init_creates_then_leaves_identical_file_unchanged(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target = tmp_path / ".tkn" / "doc_summarizer" / "config.yaml"
+    monkeypatch.setattr(config_module, "global_config_path", lambda: target)
+
+    created = initialize_user_config()
+    unchanged = initialize_user_config()
+
+    assert created.status == "created"
+    assert created.path == target
+    assert unchanged.status == "unchanged"
+    assert target.read_bytes() == config_example_bytes()
+
+
+def test_config_init_protects_edited_file_without_force(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target = tmp_path / "config.yaml"
+    target.write_text("model: custom\n", encoding="utf-8")
+    monkeypatch.setattr(config_module, "global_config_path", lambda: target)
+
+    with pytest.raises(FileExistsError, match="refusing to overwrite edited configuration"):
+        initialize_user_config()
+
+    assert target.read_text(encoding="utf-8") == "model: custom\n"
+
+
+def test_config_init_force_backs_up_and_replaces_edited_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target = tmp_path / "config.yaml"
+    target.write_text("model: custom\n", encoding="utf-8")
+    monkeypatch.setattr(config_module, "global_config_path", lambda: target)
+
+    result = initialize_user_config(force=True)
+
+    assert result.status == "replaced"
+    assert result.backup_path is not None
+    assert result.backup_path.read_text(encoding="utf-8") == "model: custom\n"
+    assert target.read_bytes() == config_example_bytes()
 
 
 def test_five_layer_precedence(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

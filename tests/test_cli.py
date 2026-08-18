@@ -157,6 +157,43 @@ def test_config_show_reports_summary_profile_resources(
     assert payload["value_sources"]["source_path_format"] == "built-in defaults"
 
 
+def test_config_init_reports_created_path(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: object,
+) -> None:
+    target = tmp_path / "user" / "config.yaml"
+    monkeypatch.setattr(config_module, "global_config_path", lambda: target)
+
+    assert main(["config", "init"]) == 0
+
+    captured = capsys.readouterr()  # type: ignore[attr-defined]
+    payload = json.loads(captured.out)
+    assert payload == {
+        "status": "created",
+        "path": str(target),
+        "backup_path": None,
+    }
+    assert "[SUCCESS]" in captured.err
+
+
+def test_config_init_refuses_to_replace_edited_file_without_force(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: object,
+) -> None:
+    target = tmp_path / "config.yaml"
+    target.write_text("model: custom\n", encoding="utf-8")
+    monkeypatch.setattr(config_module, "global_config_path", lambda: target)
+
+    assert main(["config", "init"]) == 1
+
+    captured = capsys.readouterr()  # type: ignore[attr-defined]
+    assert captured.out == ""
+    assert "re-run with --force" in captured.err
+    assert target.read_text(encoding="utf-8") == "model: custom\n"
+
+
 def test_config_show_accepts_cli_summary_profile_override(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

@@ -58,10 +58,21 @@ metadata, or the CLI entry point, or after moving or renaming the repository.
 
 ## Initial configuration
 
-Copy `.tkn/config.example.yaml` to either:
+Create the normal user configuration:
 
-- `~/.tkn/doc_summarizer/config.yaml` for normal user-wide settings, or
-- `./.tkn/config.yaml` for the current working directory only.
+```console
+tkn-doc-summarizer config init
+tkn-doc-summarizer config show
+```
+
+`config init` copies the packaged example to
+`~/.tkn/doc_summarizer/config.yaml` and prints its absolute path. It returns
+`unchanged` when the file already has identical content and refuses to replace
+edited settings. To intentionally reset the file, use `config init --force`; the
+existing file is backed up before replacement.
+
+Use `./.tkn/config.yaml` only when the current working directory needs an
+override. It is ignored by Git.
 
 Set `source_roots` to one or more folders containing Web Clipper Markdown files.
 File-path input works without `source_roots`.
@@ -76,8 +87,8 @@ source_path_format: native
 summary_profile: default-ja
 ```
 
-The real `./.tkn/config.yaml` is ignored by Git. The application does not create
-directories while running `config show`.
+`config show` displays the effective values and their sources without creating
+directories or invoking Codex.
 
 ## Basic usage
 
@@ -243,6 +254,17 @@ tkn-doc-summarizer validate "C:\path\to\summary.md"
 
 It is read-only. JSON reports `valid: true` on success; the process exits nonzero
 when validation fails.
+
+### `config init [--force]`
+
+Creates `~/.tkn/doc_summarizer/config.yaml` from the packaged example and prints
+the result and absolute path as JSON. An identical file is `unchanged`; a
+different file is protected unless `--force` is specified. Forced replacement
+creates a timestamped backup first.
+
+```console
+tkn-doc-summarizer config init
+```
 
 ### `config show`
 

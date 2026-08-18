@@ -58,10 +58,20 @@ dependency、package metadata、CLI entry pointを変更した場合、または
 
 ## 初期設定
 
-`.tkn/config.example.yaml` を次のどちらかへコピーします。
+通常のユーザー設定を作成します。
 
-- 通常のユーザー設定: `~/.tkn/doc_summarizer/config.yaml`
-- 現在のworking directory専用設定: `./.tkn/config.yaml`
+```console
+tkn-doc-summarizer config init
+tkn-doc-summarizer config show
+```
+
+`config init` はpackageに含まれるexampleを
+`~/.tkn/doc_summarizer/config.yaml` へ作成し、その絶対pathを表示します。同じ内容の
+fileがある場合は `unchanged` とし、編集済み設定は置換しません。意図的に初期状態へ
+戻す場合は `config init --force` を使います。既存fileは置換前にbackupされます。
+
+current working directoryだけで設定を上書きする場合は、`./.tkn/config.yaml` を使用します。
+このfileはGit管理対象外です。
 
 `source_roots` に、Obsidian Web ClipperのMarkdown保存先を1つ以上設定します。
 ファイルパスを直接入力する場合、`source_roots` は不要です。
@@ -76,8 +86,7 @@ source_path_format: native
 summary_profile: default-ja
 ```
 
-実設定の `./.tkn/config.yaml` はGit管理対象外です。`config show` ではdirectoryを
-作成しません。
+`config show` は有効な値と決定元を表示し、directory作成やCodex実行は行いません。
 
 ## 基本的な使い方
 
@@ -231,6 +240,16 @@ tkn-doc-summarizer validate "C:\path\to\summary.md"
 ```
 
 成功時はJSONの `valid` が `true` になります。失敗時は非0で終了します。
+
+### `config init [--force]`
+
+packageに含まれるexampleから `~/.tkn/doc_summarizer/config.yaml` を作り、結果と絶対pathを
+JSONで表示します。同じ内容なら `unchanged`、異なる内容なら保護します。`--force` を
+指定して置換する場合も、先にtimestamp付きbackupを作成します。
+
+```console
+tkn-doc-summarizer config init
+```
 
 ### `config show`
 

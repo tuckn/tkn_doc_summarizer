@@ -1,6 +1,3 @@
-# Copy this file to ~/.tkn/doc_summarizer/config.yaml for user-global settings,
-# or to .tkn/config.yaml for a current-working-directory override.
-
 # URL inputs are resolved to Markdown files by recursively searching these roots.
 # File-path inputs do not require source_roots.
 source_roots:

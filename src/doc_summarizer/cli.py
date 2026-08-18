@@ -14,6 +14,7 @@ from doc_summarizer.comparison_resources import load_comparison_profile
 from doc_summarizer.config import (
     BUILT_IN_SUMMARY_PROFILES,
     DEFAULT_SUMMARY_PROFILE,
+    initialize_user_config,
     public_config,
     resolve_config,
 )
@@ -169,6 +170,16 @@ def build_parser() -> argparse.ArgumentParser:
 
     config_parser = commands.add_parser("config", help="configuration operations")
     config_commands = config_parser.add_subparsers(dest="config_command", required=True)
+    config_init = config_commands.add_parser(
+        "init",
+        help="create the user configuration without overwriting edited settings",
+    )
+    config_init.add_argument(
+        "--force",
+        action="store_true",
+        help="back up and replace an existing configuration with different content",
+    )
+    _verbosity(config_init)
     config_show = config_commands.add_parser(
         "show",
         help="show resolved non-secret configuration and value sources",
@@ -263,6 +274,35 @@ def main(argv: list[str] | None = None) -> int:
                 logger.error("Validation failed: %s", args.path)
                 return 1
             log_success(logger, "Validation succeeded: %s", args.path)
+            return 0
+        if args.command == "config" and args.config_command == "init":
+            init_result = initialize_user_config(force=args.force)
+            if init_result.status == "unchanged":
+                log_success(
+                    logger,
+                    "User configuration is already current: %s",
+                    init_result.path,
+                )
+            else:
+                log_success(
+                    logger,
+                    "User configuration %s: %s",
+                    init_result.status,
+                    init_result.path,
+                )
+            print(
+                json.dumps(
+                    {
+                        "status": init_result.status,
+                        "path": str(init_result.path),
+                        "backup_path": (
+                            str(init_result.backup_path) if init_result.backup_path else None
+                        ),
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            )
             return 0
         resolved = _resolved(args)
         config = resolved.config
