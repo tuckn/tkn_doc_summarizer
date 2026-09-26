@@ -27,6 +27,9 @@ class FakeComparisonProvider:
         self.invalid_source = invalid_source
         self.calls = 0
 
+    def plan(self, request: ComparisonRequest | None = None) -> dict[str, object]:
+        return {"will_call_provider": False}
+
     def generate(self, request: ComparisonRequest) -> ComparisonProviderResult:
         self.calls += 1
         return ComparisonProviderResult(

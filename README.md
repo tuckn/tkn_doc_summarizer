@@ -47,12 +47,15 @@ URL は、保存済み Markdown を探す検索キーです。
 ### 処理の流れ
 
 矢印はデータの流れです。
-CLI が入力の特定、生成の依頼、検証、保存を順に行い、生成AIを使うのは Codex CLI に要約を依頼する段階です。
+CLI が入力の特定、生成の依頼、検証、保存を順に行い、生成AIへの接続は共通ライブラリ [tkn_genai_bridge](https://github.com/tuckn/tkn_genai_bridge)（以下、Bridge）が担当します。
 
 ```mermaid
 flowchart LR
     Input["ファイルパスまたは保存済み記事の URL"] --> Resolve["ローカル文書を特定して読む"]
-    Resolve --> Generate["Codex CLI で要約を生成"]
+    Resolve --> Generate["Bridge へ構造化生成を依頼"]
+    Connection["Bridge 共有設定：接続先・モデル・認証"] --> Generate
+    Generate --> AI["選択した CLI / API"]
+    AI --> Generate
     Profile["要約プロファイル：言語・生成指示・出力形式"] --> Generate
     Generate --> Validate["Markdown に整形して検証"]
     Validate --> Note["要約ノートを保存"]
@@ -60,7 +63,7 @@ flowchart LR
 
 要約プロファイルは、言語・生成指示・出力形式をまとめた設定です。
 `default-ja` は日本語、`default-en` は英語を選びます。
-生成に使うモデルは `model` で別に指定します。
+生成に使う接続先・モデルは Bridge の共有設定で指定し、アプリの `generation.profiles` から参照します。
 要約ノートのほかに、成功・失敗や生成条件を記録した JSON の実行レポートを保存します。
 
 ## セットアップ
@@ -69,7 +72,7 @@ flowchart LR
 
 - Python 3.11 以上と [uv](https://docs.astral.sh/uv/)。
 - 要約する UTF-8 のテキスト文書と、要約を書き込める保存先。
-- 実際の要約生成には、インストール・認証済みの Codex CLI。既定では `codex` コマンドを呼び出します。
+- 要約に使う CLI または API の利用準備。既定は認証済みの Codex CLI です。
 
 主対象は Windows 11 です。
 以下のコマンドはターミナルで実行し、Windows 形式の例示パスを実際のパスに置き換えてください。
@@ -87,7 +90,6 @@ tkn-doc-summarizer --version
 ```
 
 `--help` でコマンド一覧、`--version` でインストール済みのバージョンを確認できます。
-どちらも設定や Codex の認証が未完了でも実行できます。
 更新後の反映方法は「[CLI を更新する](#cli-を更新する)」を参照してください。
 
 ### 設定ファイルを作成する
@@ -96,10 +98,42 @@ tkn-doc-summarizer --version
 tkn-doc-summarizer config init
 ```
 
-`~/.tkn/doc_summarizer/config.yaml` を作成し、結果の `status` と絶対パス `path` を JSON で表示します。
-`~` は実行ユーザーのホームフォルダです。
-同じ内容のファイルがあれば `unchanged` となり、編集済みのファイルがあれば上書きせず停止します。
+このコマンドにより、`~/.tkn/doc_summarizer/config.yaml` を作成し、結果の `status` と絶対パス `path` を JSON で表示します。
+`~` は実行ユーザーのホームフォルダを示しています。Windows の場合、`C:\Users\<User Name>`です。 同じ内容のファイルがあれば `unchanged` となり、編集済みのファイルがあれば上書きせず停止します。
 すでに設定済みの場合は、そのファイルを使って次へ進めます。
+
+### 共有設定と生成プロファイルを確認する
+
+接続先・モデル・認証は `~/.tkn/genai_bridge/config.yaml` にまとめます。
+共有設定がない場合も、組み込みの `codex-default` を利用できます。
+以下は共有設定の最小例です。既存の共有設定がある場合は、使用するプロファイルを選んでください。
+
+```yaml
+schema_version: "1.1.0"
+default_profile: codex-default
+profiles:
+  codex-default:
+    provider: codex
+    model: null
+    timeout_seconds: 1800
+```
+
+本 CLI の `config.yaml` は、共有設定を次のように参照します。
+保存先や `summary_prompt` など、ほかの設定は保持してください。
+
+```yaml
+schema_version: "1.0.0"
+generation:
+  summary_profile: default-ja
+  active_profile: codex
+  profiles:
+    codex:
+      bridge_profile: codex-default
+```
+
+`codex` はアプリ内の選択名、`codex-default` は Bridge の共有設定内の名前です。
+`generation.summary_profile` は言語・出力形式を選び、接続先とは独立しています。
+Bridge は作業フォルダの `./.tkn/config.yaml` を読み込まないため、アプリの設定と混同されません。
 
 ### 保存先を設定して確認する
 
@@ -130,8 +164,9 @@ source_roots:
 tkn-doc-summarizer config show
 ```
 
-JSON の `values` で保存先やモデル、`value_sources` で各値を決めた設定ファイルを確認できます。
-`config show` はフォルダの作成や Codex の実行を行いません。
+JSON の `values` で保存先・生成プロファイル、`value_sources` で各値を決めた設定元を確認できます。
+`generationResolved` には共有設定から解決した接続先・モデル・待機上限・推論設定が表示されます。
+`config show` は外部 CLI の起動・認証・通信・ファイル作成を行いません。
 設定の優先順位と全項目は「[設定](#設定)」にあります。
 
 ## 最初の実行と結果確認
@@ -146,13 +181,14 @@ tkn-doc-summarizer summarize "<source-file>" --dry-run
 ```
 
 新規作成予定なら `status: "planned"` と `path` を表示します。
-`--dry-run` は Codex を実行せず、要約・レポート・一時ファイルを作成しません。
+`--dry-run` は Bridge の `plan()` で接続設定・入力・スキーマを確認し、`details.bridge_plan` に入力ハッシュと token 概算を表示します。
+外部 CLI の起動・認証・通信を行わず、要約・レポート・一時ファイルを作成しません。
 認証や生成品質までは確認しないため、成功しても実際の生成が成功することを保証しません。
 
 ### 要約を作成する
 
-通常実行では、文書の本文とタイトル・出典などを Codex CLI に渡して生成します。
-Codex の接続先へ入力が送信され、利用形態に応じて利用枠や費用を消費します。
+通常実行では、文書の本文とタイトル・出典などを Bridge で選択した接続先へ渡して生成します。
+利用形態に応じて利用枠や費用を消費します。
 その接続先へ渡せる文書を指定してください。
 
 ```shell
@@ -268,8 +304,8 @@ tkn-doc-summarizer summarize "<source-file>" --output "<output-file>"
 
 | 既存ノートの状態                                                         | 通常実行の動作                                   |
 | ------------------------------------------------------------------------ | ------------------------------------------------ |
-| 対応するノートがない                                                     | Codex を呼び出して新規作成                       |
-| 入力と生成条件が一致し、検証にも成功                                     | `unchanged` として再利用。Codex は呼び出さない |
+| 対応するノートがない                                                     | Bridge 経由で生成して新規作成                    |
+| 入力と生成条件が一致し、検証にも成功                                     | `unchanged` として再利用。AI は呼び出さない    |
 | 入力、プロンプト、出力形式、明示したモデルなどが変わった                 | 上書きせず停止。再生成には`--overwrite` が必要 |
 | 対応するノートが検証に失敗                                               | 自動では置換せず停止                             |
 | 指定先が別の文書・文書の組・モード・プロファイル・プロンプト ID に属する | `--overwrite` を付けても置換せず停止           |
@@ -322,17 +358,17 @@ tkn-doc-summarizer summarize "<source-file>" --overwrite
 `--source-root` は複数回指定でき、設定ファイルの検索先一覧を置き換えます。
 `--model`、`--config`、`--reports-root`、入力サイズやタイムアウトの指定も、この実行にだけ適用します。
 
-| 操作                                                        | Codex の実行 | この CLI が保存するもの                                    |
-| ----------------------------------------------------------- | ------------ | ---------------------------------------------------------- |
-| `summarize` / `synthesize` の新規作成・再生成           | あり         | 要約ノート、実行レポート                                   |
-| 同コマンドで`unchanged`                                   | なし         | 実行レポート                                               |
-| 同コマンドの`--dry-run`                                   | なし         | なし                                                       |
-| `validate` / `config show` / `--help` / `--version` | なし         | なし                                                       |
-| `config init`                                             | なし         | 設定ファイル。`--force` による置換時はバックアップも作成 |
-| `prompt init`                                             | なし         | 編集用プロンプト                                           |
+| 操作                                                        | AI の実行 | この CLI が保存するもの                                    |
+| ----------------------------------------------------------- | --------- | ---------------------------------------------------------- |
+| `summarize` / `synthesize` の新規作成・再生成           | あり      | 要約ノート、実行レポート                                   |
+| 同コマンドで`unchanged`                                   | なし      | 実行レポート                                               |
+| 同コマンドの`--dry-run`                                   | なし      | なし                                                       |
+| `validate` / `config show` / `--help` / `--version` | なし      | なし                                                       |
+| `config init`                                             | なし      | 設定ファイル。`--force` による置換時はバックアップも作成 |
+| `prompt init`                                             | なし      | 編集用プロンプト                                           |
 
 `--dry-run` は要約・統合コマンドに対応します。
-設定、プロンプト、入力、出力先の衝突や既存ノートを検査し、書き込みや Codex の起動確認・認証・通信は行いません。
+設定、プロンプト、入力、出力先の衝突や既存ノートを検査し、Bridge の設定と要求形式を検証します。書き込みや外部 CLI の起動確認・認証・通信は行いません。
 既存ノートが有効なら `unchanged` を返し、通常実行でも上書きが必要な場合は dry-run でも停止します。
 
 ## 設定
@@ -355,28 +391,68 @@ tkn-doc-summarizer summarize "<source-file>" --overwrite
 `config init` の [設定例](src/doc_summarizer/resources/config.example.yaml) には、URL 検索先として置換用の例示パスが入っています。
 設定を省略した場合は、それより優先順位の低い設定値または既定値を使います。
 
-| 設定キー                  | 既定値                                   | 変えるとどうなるか                                                       |
-| ------------------------- | ---------------------------------------- | ------------------------------------------------------------------------ |
-| `source_roots`          | `[]`                                   | URL で検索する Markdown の保存先一覧。空なら URL 検索はできない          |
-| `output_root`           | `~/.tkn/doc_summarizer/data/summaries` | 自動命名した要約の保存先と既存ノートの検索先が変わる                     |
-| `reports_root`          | `~/.tkn/doc_summarizer/state/reports`  | 実行レポートの保存先が変わる                                             |
-| `provider`              | `codex`                                | 現在使える生成方式は`codex` のみ                                       |
-| `model`                 | `null`                                 | Codex の既定モデルを使用。モデル名を指定すると生成時に渡す               |
-| `codex_executable`      | `codex`                                | 起動する実行ファイルの名前またはパスが変わる                             |
-| `codex_timeout_seconds` | `1800`                                 | 1回の生成プロセスを待つ上限秒数。1以上                                   |
-| `max_input_bytes`       | `2000000`                              | 入力1ファイルの上限バイト数。Frontmatter を含むファイル全体が対象。1以上 |
-| `max_total_input_bytes` | `8000000`                              | 1回の`synthesize` で読む全入力ファイルの合計上限バイト数。1以上        |
-| `source_path_format`    | `native`                               | 出力する出典参照を OS のパスにする。`file-uri` も指定可能              |
-| `summary_profile`       | `default-ja`                           | 要約の言語・構成を選ぶ。`default-ja` または `default-en`             |
-| `summary_prompt`        | `null`                                 | 組み込み指示を使用。ファイル名または絶対パスでカスタム指示を選ぶ         |
+| 設定キー                                     | 既定値                                   | 変えるとどうなるか                                                       |
+| -------------------------------------------- | ---------------------------------------- | ------------------------------------------------------------------------ |
+| `source_roots`                             | `[]`                                   | URL で検索する Markdown の保存先一覧。空なら URL 検索はできない          |
+| `output_root`                              | `~/.tkn/doc_summarizer/data/summaries` | 自動命名した要約の保存先と既存ノートの検索先が変わる                     |
+| `reports_root`                             | `~/.tkn/doc_summarizer/state/reports`  | 実行レポートの保存先が変わる                                             |
+| `schema_version`                           | `"1.0.0"`                              | アプリの設定形式の版。Bridge やノートの版とは別                          |
+| `generation.active_profile`                | `codex`                                | アプリ内の生成プロファイルを選ぶ                                         |
+| `generation.profiles.codex.bridge_profile` | `codex-default`                        | Bridge 共有設定の参照先                                                  |
+| `generation.profiles.<name>.overrides`     | `{}`                                   | このアプリで使う接続設定の上書き。共有ファイルは変更しない               |
+| `max_input_bytes`                          | `2000000`                              | 入力1ファイルの上限バイト数。Frontmatter を含むファイル全体が対象。1以上 |
+| `max_total_input_bytes`                    | `8000000`                              | 1回の`synthesize` で読む全入力ファイルの合計上限バイト数。1以上        |
+| `source_path_format`                       | `native`                               | 出力する出典参照を OS のパスにする。`file-uri` も指定可能              |
+| `generation.summary_profile`               | `default-ja`                           | 要約の言語・構成を選ぶ。`default-ja` または `default-en`             |
+| `summary_prompt`                           | `null`                                 | 組み込み指示を使用。ファイル名または絶対パスでカスタム指示を選ぶ         |
 
 `source_roots` はリストで指定し、明示した `[]` は下位設定の一覧を空にします。
-`model` と `summary_prompt` の `null` は、空文字ではなく YAML の `null` を使ってください。
+`summary_prompt` や Bridge の `model` の `null` は、空文字ではなく YAML の `null` を使ってください。
 未知の設定キー、型・範囲が不正な値、存在しない `--config`、読み込めないプロンプトはエラーになります。
-`codex` 以外の `provider` は生成時に拒否します。
+選択した接続先と上書き値は `config show`、生成予定の `--dry-run`、通常生成時に Bridge が検証します。
 
 `output_root` を変更すると以前の保存先のノートを検索しなくなるため、新しい保存先では再生成されることがあります。
-`model: null` のとき、Codex 側の既定モデルの変更だけでは既存ノートを再生成しません。
+既存ノートの再利用判定は従来の入力・要約リソース・明示したモデルの照合を保持します。
+アプリの `overrides.model` または `--model` を明示した場合は、接続先の表示名とモデルを `generator` と比較します。
+それ以外では、共有設定内のモデル・接続先・推論設定の変更だけで既存ノートを再生成しません。
+新しい接続条件で再生成する場合は `--overwrite` を使います。既存ノートを再利用でき、モデル上書きもない場合は Bridge の設定読み込みを省略します。
+
+### 生成プロファイルと共有設定
+
+共有設定に `claude-default` を定義した場合のアプリ設定例です。
+モデル・認証・実行ファイル・`local_only` の指定は [Bridge の設定仕様](https://github.com/tuckn/tkn_genai_bridge/blob/fe3ca54d3f974117179655a98b2e5fb12b95f5b7/docs/reference/configuration.md) に従います。
+
+```yaml
+generation:
+  summary_profile: default-ja
+  active_profile: codex
+  profiles:
+    codex:
+      bridge_profile: codex-default
+    claude:
+      bridge_profile: claude-default
+    codex-long:
+      bridge_profile: codex-default
+      overrides:
+        timeout_seconds: 1800
+```
+
+```shell
+tkn-doc-summarizer config show --profile claude
+tkn-doc-summarizer summarize "<source-file>" --profile claude --dry-run
+tkn-doc-summarizer synthesize "<source-1>" "<source-2>" --mode compare --profile claude
+```
+
+`--profile` はアプリ内の名前、`--bridge-profile` は共有設定の名前をこの実行だけ変更します。
+`--model`、`--provider-timeout-seconds` は選択した接続設定を上書きします。
+待機上限の既定値は共有設定から継承します。Bridge の組み込み値は300秒で、指定できる範囲は0より大きく86400以下です。
+`overrides` は Bridge の `Profile` の規則で検証され、存在しないプロファイルや不正な値で別の接続先へ自動的に切り替えることはありません。
+アプリ内の設定はプロファイル単位・項目単位で再帰的にマージします。
+
+旧形式のトップレベル `summary_profile`、`model`、`provider: codex`、`codex_executable`、`codex_timeout_seconds` は読み込み時に変換します。
+旧形式と `generation` を同じ設定ファイルで混在させるとエラーになります。
+旧 `provider` / `codex_executable` を残した場合は Codex 接続に限定されるため、別の接続先へ移行するときは `generation` 形式に揃えてください。
+旧 `--codex-executable` / `--codex-timeout-seconds` も互換入力として受け付けます。既存のユーザー設定ファイルを自動で書き換えることはありません。
 
 ### 出典のパス形式を変更する
 
@@ -453,7 +529,7 @@ JSON の出力形式と Markdown のテンプレートはそのまま使うた�
 | 実行レポート             | 成功・失敗、処理時刻、生成条件を調べる記録。削除するとその実行記録は失われる     |
 
 ノートは元文書と生成環境があれば再生成できますが、再び生成AIの利用が必要になり、同じ文章や手動編集は再現されません。
-Codex に渡すスキーマと応答の一時ファイルには OS の一時フォルダを使い、通常は処理終了時に削除します。
+生成用の外部プロセス・API・一時ファイルの管理は Bridge が担当します。
 ノートは保存先と同じフォルダで一時ファイルを準備してから置き換えます。
 
 ### ファイル名と既存ノートの識別
@@ -512,6 +588,10 @@ SHA-256 は、内容が変わったかを照合するためのハッシュ値で
 要約・統合の通常実行では、再利用した場合もレポートを作ります。
 レポートの `status` は `success` または `failure` で、ノートを作成したかどうかは `result.status` で確認します。
 失敗時は `error` を読みます。
+レポート形式1.1では、生成成功時の `result.details.generation_record` に Bridge の版、プロファイル名、生成条件・入力・スキーマのハッシュ、要求モデルと応答モデル、利用量・参考コストを保存します。
+Bridge の失敗時は `provider_error.code` と `provider_error.generation_record` に取得済みの情報を保存します。
+不明な利用量やコストは `null` のまま保持します。外部 CLI の版を取得しないため `provider_version` は `null` です。
+Bridge の診断情報に入力文書・プロンプト・応答本文は保存しません。
 設定やプロファイルの読み込みなど、処理開始前に失敗した場合や保存自体に失敗した場合は、レポートが残らないことがあります。
 一般の処理エラーでは標準出力に JSON が出ないため、終了コードと標準エラー出力も確認してください。
 `validate` の検証失敗は `valid: false` と `errors` を JSON で返します。
@@ -523,13 +603,13 @@ SHA-256 は、内容が変わったかを照合するためのハッシュ値で
 
 ## 対応範囲と制限
 
-| 対象     | 対応する範囲                                                                     |
-| -------- | -------------------------------------------------------------------------------- |
-| 入力形式 | UTF-8 のテキストファイル。PDF・Word・画像などからの本文抽出は行わない            |
-| Web 記事 | 保存済み Markdown を利用。未保存のページの取得やクリップの完全性の検査は行わない |
-| 生成AI   | Codex CLI のみ。生成前に実行ファイルの版を確認する                               |
-| 長い文書 | 入力サイズの設定上限まで。分割して段階的に要約する機能はない                     |
-| 処理単位 | 1回のコマンドで1つの要約ノート。フォルダ全体の一括処理や常駐監視は行わない       |
+| 対象     | 対応する範囲                                                                         |
+| -------- | ------------------------------------------------------------------------------------ |
+| 入力形式 | UTF-8 のテキストファイル。PDF・Word・画像などからの本文抽出は行わない                |
+| Web 記事 | 保存済み Markdown を利用。未保存のページの取得やクリップの完全性の検査は行わない     |
+| 生成AI   | Bridge の Codex・Claude Code・GitHub Copilot・Antigravity・Ollama・Azure OpenAI 接続 |
+| 長い文書 | 入力サイズの設定上限まで。分割して段階的に要約する機能はない                         |
+| 処理単位 | 1回のコマンドで1つの要約ノート。フォルダ全体の一括処理や常駐監視は行わない           |
 
 入力が空、UTF-8 として読めない、またはサイズ上限を超える場合は停止します。
 設定上のバイト数上限はモデルが受け付ける入力長の保証ではありません。
@@ -595,8 +675,10 @@ uv build
 ```
 
 テストは人工データと置き換えた生成処理を使います。
-テスト成功は、実際の Codex の認証・通信・生成品質の確認を意味しません。
+テスト成功は、実際の接続先の認証・通信・生成品質の確認を意味しません。
 テストやビルドの一時ファイルには通常のキャッシュや OS の一時フォルダを使い、実データをリポジトリへ保存しないでください。
+
+Bridge は `pyproject.toml` の固定コミット ZIP URL から取得します。更新時は参照コミットと `uv.lock` を合わせて変更し、テストと再インストールを行ってください。
 
 ソース変更をインストール済み CLI にすぐ反映したい場合は、開発用の editable インストールを使います。
 
@@ -617,7 +699,7 @@ uv tool install -e . --reinstall
 | ファイル               | 担当する内容                                       |
 | ---------------------- | -------------------------------------------------- |
 | `prompt.md`          | 生成指示、出典に沿うための規則、各項目へ含める内容 |
-| `output.schema.json` | Codex が返す JSON の項目・型・階層                 |
+| `output.schema.json` | 生成AIが返す JSON の項目・型・階層                 |
 | `template.md`        | Markdown の見出し・順序・配置                      |
 
 読み込み時にリソースを検証し、各 SHA-256 からプロファイル全体のハッシュを計算します。

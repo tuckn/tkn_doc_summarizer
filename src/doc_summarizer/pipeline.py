@@ -35,9 +35,10 @@ from doc_summarizer.prompting import (
     SERIES_PROMPT_ENVELOPE_VERSION,
 )
 from doc_summarizer.providers import (
-    CodexComparisonProvider,
-    CodexProvider,
+    BridgeComparisonProvider,
+    BridgeProvider,
     ComparisonProvider,
+    ProviderExecutionError,
     SummaryProvider,
 )
 from doc_summarizer.source import resolve_source, split_frontmatter
@@ -63,28 +64,35 @@ def _source_set_with_title(
 
 
 def provider_for_config(config: AppConfig) -> SummaryProvider:
-    if config.provider != "codex":
-        raise ValueError(f"unsupported provider: {config.provider}")
-    return CodexProvider(
-        executable=config.codex_executable,
-        model=config.model,
-        timeout_seconds=config.codex_timeout_seconds,
+    return BridgeProvider(
+        bridge_profile=config.generation.selected.bridge_profile,
+        overrides=config.generation.selected.overrides,
+        legacy_provider=config.generation.selected.legacy_provider,
         summary_profile=config.summary_profile,
         summary_prompt=config.summary_prompt,
     )
 
 
 def comparison_provider_for_config(config: AppConfig) -> ComparisonProvider:
-    if config.provider != "codex":
-        raise ValueError(f"unsupported provider: {config.provider}")
     if config.summary_prompt is not None:
         raise ValueError("--summary-prompt is not supported with --mode compare")
-    return CodexComparisonProvider(
-        executable=config.codex_executable,
-        model=config.model,
-        timeout_seconds=config.codex_timeout_seconds,
+    return BridgeComparisonProvider(
+        bridge_profile=config.generation.selected.bridge_profile,
+        overrides=config.generation.selected.overrides,
+        legacy_provider=config.generation.selected.legacy_provider,
         summary_profile=config.summary_profile,
     )
+
+
+def _requested_generator(
+    provider: SummaryProvider | ComparisonProvider,
+    config: AppConfig,
+) -> str | None:
+    if config.model is None:
+        return None
+    if isinstance(provider, BridgeProvider | BridgeComparisonProvider):
+        return provider.requested_generator(config.model)
+    return f"Codex ({config.model})"
 
 
 def _candidate_metadata(path: Path) -> dict[str, Any] | None:
@@ -191,11 +199,11 @@ def _is_current(
     prompt_version: str,
     prompt_sha256: str,
     profile_sha256: str,
-    requested_model: str | None,
+    requested_generator: str | None,
     source_path_format: SourcePathFormat,
 ) -> bool:
     generator = str(metadata.get("generator") or "")
-    model_matches = requested_model is None or generator == f"Codex ({requested_model})"
+    model_matches = requested_generator is None or generator == requested_generator
     return (
         metadata.get("sourceSha256") == source.source_sha256
         and source_reference_format(str(metadata.get("source") or "")) == source_path_format
@@ -215,18 +223,20 @@ def _write_report(
     result: SummaryResult | None = None,
     error: str | None = None,
     command: str = "summarize",
+    provider_error: dict[str, Any] | None = None,
 ) -> Path:
     now = datetime.now().astimezone()
     run_id = f"{now.strftime('%Y%m%dT%H%M%S%z')}_{uuid.uuid4().hex[:8]}"
     path = config.reports_root / f"{run_id}.json"
     payload: dict[str, object] = {
-        "schema_version": "1.0",
+        "schema_version": "1.1",
         "run_id": run_id,
         "command": command,
         "started_at": started_at.isoformat(timespec="seconds"),
         "finished_at": now.isoformat(timespec="seconds"),
         "status": status,
         "error": error,
+        "provider_error": provider_error,
         "result": None,
     }
     if result is not None:
@@ -277,7 +287,7 @@ def _summarize(
             prompt_version=prompt.version,
             prompt_sha256=prompt.sha256,
             profile_sha256=profile.sha256,
-            requested_model=config.model,
+            requested_generator=_requested_generator(provider, config),
             source_path_format=config.source_path_format,
         )
         if current and not existing_errors and not overwrite:
@@ -314,6 +324,10 @@ def _summarize(
                 review_status,
                 target,
             )
+    request = SummaryRequest(
+        source=source,
+        prompt_envelope_version=PROMPT_ENVELOPE_VERSION,
+    )
     if dry_run:
         action = "updated" if target.exists() else "created"
         logger.info("Dry run: summary would be %s at %s", action, target)
@@ -323,6 +337,7 @@ def _summarize(
             status="planned",
             details={
                 "planned_status": action,
+                "bridge_plan": provider.plan(request),
                 "source_sha256": source.source_sha256,
                 "prompt_id": prompt.prompt_id,
                 "prompt_version": prompt.version,
@@ -333,10 +348,6 @@ def _summarize(
                 "dry_run": True,
             },
         )
-    request = SummaryRequest(
-        source=source,
-        prompt_envelope_version=PROMPT_ENVELOPE_VERSION,
-    )
     logger.info("Generating structured summary with the configured provider")
     generated = provider.generate(request)
     if (
@@ -385,6 +396,7 @@ def _summarize(
             "provider": generated.provider,
             "model": generated.model,
             "provider_version": generated.provider_version,
+            "generation_record": generated.generation_record,
             "source_sha256": source.source_sha256,
             "prompt_id": prompt.prompt_id,
             "prompt_version": prompt.version,
@@ -434,6 +446,7 @@ def summarize(
             started_at=started_at,
             status="failure",
             error=str(exc),
+            provider_error=exc.error_details if isinstance(exc, ProviderExecutionError) else None,
         )
         raise RuntimeError(f"{exc}; report={report}") from exc
     if dry_run:
@@ -534,11 +547,11 @@ def _is_current_series(
     prompt_version: str,
     prompt_sha256: str,
     profile_sha256: str,
-    requested_model: str | None,
+    requested_generator: str | None,
     source_path_format: SourcePathFormat,
 ) -> bool:
     generator = str(metadata.get("generator") or "")
-    model_matches = requested_model is None or generator == f"Codex ({requested_model})"
+    model_matches = requested_generator is None or generator == requested_generator
     sources = metadata.get("sources")
     format_matches = isinstance(sources, list) and all(
         isinstance(entry, dict)
@@ -644,7 +657,7 @@ def _synthesize_series(
             prompt_version=prompt.version,
             prompt_sha256=prompt.sha256,
             profile_sha256=profile.sha256,
-            requested_model=config.model,
+            requested_generator=_requested_generator(provider, config),
             source_path_format=config.source_path_format,
         )
         if current and not existing_errors and not overwrite:
@@ -676,6 +689,10 @@ def _synthesize_series(
                 review_status,
                 target,
             )
+    request = SeriesSummaryRequest(
+        source_set=source_set,
+        prompt_envelope_version=SERIES_PROMPT_ENVELOPE_VERSION,
+    )
     if dry_run:
         action = "updated" if target.exists() else "created"
         logger.info("Dry run: series summary would be %s at %s", action, target)
@@ -687,16 +704,13 @@ def _synthesize_series(
             generated_title_pending=generated_target_pending,
         )
         details["planned_status"] = action
+        details["bridge_plan"] = provider.plan(request)
         return SummaryResult(
             path=target,
             source_path=source_set.sources[0].document.path,
             status="planned",
             details=details,
         )
-    request = SeriesSummaryRequest(
-        source_set=source_set,
-        prompt_envelope_version=SERIES_PROMPT_ENVELOPE_VERSION,
-    )
     logger.info(
         "Generating one structured summary from %d ordered sources", len(source_set.sources)
     )
@@ -760,6 +774,7 @@ def _synthesize_series(
             "provider": generated.provider,
             "model": generated.model,
             "provider_version": generated.provider_version,
+            "generation_record": generated.generation_record,
             "prompt_envelope_version": SERIES_PROMPT_ENVELOPE_VERSION,
             "prompt_source": prompt.source,
             "summary_profile_source": profile.source,
@@ -809,6 +824,7 @@ def synthesize_series(
             started_at=started_at,
             status="failure",
             error=str(exc),
+            provider_error=exc.error_details if isinstance(exc, ProviderExecutionError) else None,
             command="synthesize",
         )
         raise RuntimeError(f"{exc}; report={report}") from exc
@@ -911,11 +927,11 @@ def _is_current_comparison(
     prompt_version: str,
     prompt_sha256: str,
     profile_sha256: str,
-    requested_model: str | None,
+    requested_generator: str | None,
     source_path_format: SourcePathFormat,
 ) -> bool:
     generator = str(metadata.get("generator") or "")
-    model_matches = requested_model is None or generator == f"Codex ({requested_model})"
+    model_matches = requested_generator is None or generator == requested_generator
     sources = metadata.get("sources")
     format_matches = isinstance(sources, list) and all(
         isinstance(entry, dict)
@@ -1019,7 +1035,7 @@ def _synthesize_compare(
             prompt_version=prompt.version,
             prompt_sha256=prompt.sha256,
             profile_sha256=profile.sha256,
-            requested_model=config.model,
+            requested_generator=_requested_generator(provider, config),
             source_path_format=config.source_path_format,
         )
         if current and not existing_errors and not overwrite:
@@ -1051,6 +1067,10 @@ def _synthesize_compare(
                 review_status,
                 target,
             )
+    request = ComparisonRequest(
+        source_set=source_set,
+        prompt_envelope_version=COMPARISON_PROMPT_ENVELOPE_VERSION,
+    )
     if dry_run:
         action = "updated" if target.exists() else "created"
         logger.info("Dry run: comparison would be %s at %s", action, target)
@@ -1062,16 +1082,13 @@ def _synthesize_compare(
             generated_title_pending=generated_target_pending,
         )
         details["planned_status"] = action
+        details["bridge_plan"] = provider.plan(request)
         return SummaryResult(
             path=target,
             source_path=source_set.sources[0].document.path,
             status="planned",
             details=details,
         )
-    request = ComparisonRequest(
-        source_set=source_set,
-        prompt_envelope_version=COMPARISON_PROMPT_ENVELOPE_VERSION,
-    )
     logger.info("Comparing %d sources", len(source_set.sources))
     generated = provider.generate(request)
     if (
@@ -1141,6 +1158,7 @@ def _synthesize_compare(
             "provider": generated.provider,
             "model": generated.model,
             "provider_version": generated.provider_version,
+            "generation_record": generated.generation_record,
             "prompt_envelope_version": COMPARISON_PROMPT_ENVELOPE_VERSION,
             "prompt_source": prompt.source,
             "summary_profile_source": profile.source,
@@ -1192,6 +1210,7 @@ def synthesize_compare(
             started_at=started_at,
             status="failure",
             error=str(exc),
+            provider_error=exc.error_details if isinstance(exc, ProviderExecutionError) else None,
             command="synthesize",
         )
         raise RuntimeError(f"{exc}; report={report}") from exc

@@ -26,6 +26,9 @@ class FakeProvider:
         self.profile = load_summary_profile(profile_name, prompt=self.prompt)
         self.calls = 0
 
+    def plan(self, request: SummaryGenerationRequest | None = None) -> dict[str, object]:
+        return {"will_call_provider": False}
+
     def generate(self, request: SummaryGenerationRequest) -> ProviderResult:
         self.calls += 1
         return ProviderResult(

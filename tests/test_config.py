@@ -200,3 +200,68 @@ def test_relative_paths_resolve_from_cwd(
     resolved = resolve_config(cwd=tmp_path, explicit_config=explicit)
     assert resolved.config.source_roots == [(tmp_path / "clips").resolve()]
     assert resolved.config.output_root == (tmp_path / "summaries").resolve()
+
+
+def test_nested_profiles_merge_and_cli_targets_selected_profile(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    global_config = tmp_path / "global.yaml"
+    global_config.write_text(
+        "generation:\n  summary_profile: default-en\n  profiles:\n"
+        "    work:\n      bridge_profile: shared-work\n"
+        "      overrides:\n        model: base\n        timeout_seconds: 120\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(config_module, "global_config_path", lambda: global_config)
+    local = tmp_path / ".tkn" / "config.yaml"
+    local.parent.mkdir()
+    local.write_text(
+        "generation:\n  active_profile: work\n  profiles:\n"
+        "    work:\n      overrides:\n        model: project\n",
+        encoding="utf-8",
+    )
+    resolved = resolve_config(
+        cwd=tmp_path,
+        overrides={"profile": "work", "model": "cli", "summary_profile": "default-ja"},
+    )
+    selected = resolved.config.generation.selected
+    assert selected.bridge_profile == "shared-work"
+    assert selected.overrides == {"model": "cli", "timeout_seconds": 120}
+    assert resolved.config.summary_profile == "default-ja"
+    assert resolved.config.generation.profiles["codex"].overrides == {}
+    assert resolved.sources.count("CLI options") == 1
+    prefix = "generation.profiles.work"
+    assert resolved.value_sources[f"{prefix}.bridge_profile"] == str(global_config)
+    assert resolved.value_sources[f"{prefix}.overrides.timeout_seconds"] == str(global_config)
+    assert resolved.value_sources[f"{prefix}.overrides.model"] == "CLI options"
+
+
+def test_legacy_null_clears_lower_model_override(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    global_config = tmp_path / "global.yaml"
+    global_config.write_text("model: lower\ncodex_timeout_seconds: 60\n", encoding="utf-8")
+    monkeypatch.setattr(config_module, "global_config_path", lambda: global_config)
+    explicit = tmp_path / "explicit.yaml"
+    explicit.write_text("model: null\n", encoding="utf-8")
+    config = resolve_config(cwd=tmp_path, explicit_config=explicit).config
+    assert config.model is None
+    assert config.generation.selected.overrides == {"timeout_seconds": 60}
+
+
+@pytest.mark.parametrize(
+    "text,match",
+    [
+        ("model: old\ngeneration: {}\n", "do not mix"),
+        ("generation:\n  active_profile: missing\n", "active_profile"),
+        ("schema_version: '9.0.0'\n", "schema_version"),
+        ("generation:\n  profiles:\n    codex:\n      bridge_profile: ' '", "blank"),
+    ],
+)
+def test_invalid_generation_config_is_rejected(tmp_path: Path, text: str, match: str) -> None:
+    explicit = tmp_path / "explicit.yaml"
+    explicit.write_text(text, encoding="utf-8")
+    with pytest.raises(ValueError, match=match):
+        resolve_config(cwd=tmp_path, explicit_config=explicit)

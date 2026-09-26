@@ -3,17 +3,18 @@
 from doc_summarizer.providers.base import (
     ComparisonProvider,
     ComparisonProviderResult,
+    ProviderExecutionError,
     ProviderResult,
     SummaryProvider,
 )
-from doc_summarizer.providers.codex import CodexProvider
-from doc_summarizer.providers.comparison import CodexComparisonProvider
+from doc_summarizer.providers.bridge import BridgeComparisonProvider, BridgeProvider
 
 __all__ = [
-    "CodexComparisonProvider",
-    "CodexProvider",
+    "BridgeComparisonProvider",
+    "BridgeProvider",
     "ComparisonProvider",
     "ComparisonProviderResult",
+    "ProviderExecutionError",
     "ProviderResult",
     "SummaryProvider",
 ]

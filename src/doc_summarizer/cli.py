@@ -19,7 +19,12 @@ from doc_summarizer.config import (
     resolve_config,
 )
 from doc_summarizer.console_logging import ColorFormatter, log_success, supports_color
-from doc_summarizer.pipeline import summarize, synthesize_compare, synthesize_series
+from doc_summarizer.pipeline import (
+    provider_for_config,
+    summarize,
+    synthesize_compare,
+    synthesize_series,
+)
 from doc_summarizer.prompting import initialize_user_prompt, load_summary_prompt
 from doc_summarizer.summary_resources import load_summary_profile
 from doc_summarizer.validation import validate_summary
@@ -61,9 +66,14 @@ def _common(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument("--output-root", type=Path)
     parser.add_argument("--reports-root", type=Path)
-    parser.add_argument("--model", help="Codex model override for this run")
-    parser.add_argument("--codex-executable")
-    parser.add_argument("--codex-timeout-seconds", type=int)
+    parser.add_argument("--profile", help="application generation profile for this run")
+    parser.add_argument("--bridge-profile", help="shared Bridge profile for this run")
+    parser.add_argument("--model", help="Bridge model override for this run")
+    parser.add_argument(
+        "--provider-timeout-seconds", type=float, help="Bridge timeout for this run"
+    )
+    parser.add_argument("--codex-executable", help=argparse.SUPPRESS)
+    parser.add_argument("--codex-timeout-seconds", type=int, help=argparse.SUPPRESS)
     parser.add_argument("--max-input-bytes", type=int)
     parser.add_argument("--max-total-input-bytes", type=int)
     parser.add_argument(
@@ -123,7 +133,7 @@ def build_parser() -> argparse.ArgumentParser:
     summary_parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="resolve source and target without Codex execution or any writes",
+        help="resolve source and target without AI execution or any writes",
     )
     _common(summary_parser)
 
@@ -160,7 +170,7 @@ def build_parser() -> argparse.ArgumentParser:
     synthesize_parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="resolve the ordered sources and target without Codex execution or writes",
+        help="resolve the ordered sources and target without AI execution or writes",
     )
     _common(synthesize_parser)
 
@@ -210,6 +220,9 @@ def _resolved(args: argparse.Namespace) -> Any:
             "source_roots",
             "output_root",
             "reports_root",
+            "profile",
+            "bridge_profile",
+            "provider_timeout_seconds",
             "model",
             "codex_executable",
             "codex_timeout_seconds",
@@ -315,6 +328,10 @@ def main(argv: list[str] | None = None) -> int:
             profile = load_summary_profile(config.summary_profile, prompt=prompt)
             comparison_profile = load_comparison_profile(config.summary_profile)
             values = public_config(config)
+            generation_resolved = provider_for_config(config).plan() | {
+                "active_profile": config.generation.active_profile,
+                "summary_profile": config.summary_profile,
+            }
             values["summary_prompt"] = {
                 "configured": values["summary_prompt"],
                 "mode": prompt.mode,
@@ -365,6 +382,7 @@ def main(argv: list[str] | None = None) -> int:
                         "sources": resolved.sources,
                         "value_sources": resolved.value_sources,
                         "values": values,
+                        "generationResolved": generation_resolved,
                     },
                     ensure_ascii=False,
                     indent=2,
