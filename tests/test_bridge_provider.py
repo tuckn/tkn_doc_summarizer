@@ -63,6 +63,7 @@ class FakeBackend:
         self.invalid = invalid
 
     def generate(self, profile: Profile, request: GenerationRequest) -> ProviderResponse:
+        assert request.images == [], "document generation must remain text-only"
         self.requests.append(request)
         if self.error:
             raise ProviderError("Generation timed out", code="timeout", submission_unknown=True)
@@ -124,6 +125,9 @@ def test_bridge_uses_application_prompt_schema_and_records(
     assert result.generation_record["prompt_sha256"] == plan["prompt_sha256"]
     assert result.generation_record["schema_sha256"] == plan["schema_sha256"]
     assert result.generation_record["bridge_version"]
+    assert plan["images"] == result.generation_record["images"] == []
+    assert plan["input_sha256"] == result.generation_record["input_sha256"]
+    assert plan["input_sha256"] is not None
     for runtime in runtimes:
         with pytest.raises(ProviderError, match="closed"):
             runtime.plan(sent)

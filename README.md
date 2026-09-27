@@ -1,4 +1,4 @@
-# Tuckn Doc Summarizer — ローカル文書を要約ノートにする
+# tkn-doc-summarizer: Tkn Doc Summarizer — ローカル文書を要約ノートにする
 
 ローカルのテキスト文書や、事前に Markdown で保存した Web 記事から、要約・論点・専門用語を整理した Markdown ノートを作る CLI です。
 1つの文書の要約、複数ページの記事の統合、複数の記事の比較に使えます。
@@ -420,7 +420,7 @@ tkn-doc-summarizer summarize "<source-file>" --overwrite
 ### 生成プロファイルと共有設定
 
 共有設定に `claude-default` を定義した場合のアプリ設定例です。
-モデル・認証・実行ファイル・`local_only` の指定は [Bridge の設定仕様](https://github.com/tuckn/tkn_genai_bridge/blob/fe3ca54d3f974117179655a98b2e5fb12b95f5b7/docs/reference/configuration.md) に従います。
+モデル・認証・実行ファイル・`local_only` の指定は [Bridge の設定仕様](https://github.com/tuckn/tkn_genai_bridge/blob/9cf534e47159901c3bb05bb802695fad746cc338/docs/reference/configuration.md) に従います。
 
 ```yaml
 generation:
@@ -677,6 +677,8 @@ uv build
 テストは人工データと置き換えた生成処理を使います。
 テスト成功は、実際の接続先の認証・通信・生成品質の確認を意味しません。
 テストやビルドの一時ファイルには通常のキャッシュや OS の一時フォルダを使い、実データをリポジトリへ保存しないでください。
+
+本 CLI は Bridge 0.10.0 を使用します。要約・連続ページ・比較はいずれもテキストのみを渡し、画像添付や VLM による画像解析は行いません。
 
 Bridge は `pyproject.toml` の固定コミット ZIP URL から取得します。更新時は参照コミットと `uv.lock` を合わせて変更し、テストと再インストールを行ってください。
 

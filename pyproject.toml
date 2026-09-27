@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "tkn-doc-summarizer"
-version = "0.2.0"
+version = "0.2.1"
 description = "Create source-faithful Markdown summaries from local documents and clipped web articles."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -13,7 +13,7 @@ authors = [{ name = "Tuckn" }]
 dependencies = [
   "pydantic>=2.10,<3",
   "PyYAML>=6.0,<7",
-  "tkn-genai-bridge @ https://github.com/tuckn/tkn_genai_bridge/archive/fe3ca54d3f974117179655a98b2e5fb12b95f5b7.zip",
+  "tkn-genai-bridge @ https://github.com/tuckn/tkn_genai_bridge/archive/9cf534e47159901c3bb05bb802695fad746cc338.zip",
 ]
 
 [project.scripts]
