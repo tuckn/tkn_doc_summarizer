@@ -37,6 +37,8 @@ _PLACEHOLDER = re.compile(r"\{\{([a-z][a-z0-9_]*)\}\}")
 
 @dataclass(frozen=True)
 class SummarySchema:
+    resource_id: str
+    version: str
     value: dict[str, Any]
     source: str
     sha256: str
@@ -49,6 +51,8 @@ class SummaryTemplate:
     body: str
     source: str
     sha256: str
+    required_headings: tuple[str, ...]
+    technical_terms_heading: str
 
 
 @dataclass(frozen=True)
@@ -107,9 +111,21 @@ def load_summary_schema(
     payload = _resource_bytes(resource_name, "summary profile schema")
     source = f"package:doc_summarizer/{resource_name}"
     try:
-        value = json.loads(payload.decode("utf-8-sig"))
+        resource = json.loads(payload.decode("utf-8-sig"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise RuntimeError(f"invalid built-in summary schema {source}: {exc}") from exc
+    if not isinstance(resource, dict) or resource.get("type") != "output-schema":
+        raise RuntimeError(f"summary schema type must be 'output-schema': {source}")
+    try:
+        resource_id = str(uuid.UUID(str(resource.get("id"))))
+    except ValueError as exc:
+        raise RuntimeError(f"summary schema id must be a UUID: {source}") from exc
+    version = resource.get("version")
+    if not isinstance(version, str) or not version.strip():
+        raise RuntimeError(f"summary schema version must be a non-empty quoted string: {source}")
+    value = resource.get("schema")
+    if not isinstance(value, dict):
+        raise RuntimeError(f"summary schema must contain a schema object: {source}")
     _validate_strict_schema_object(value, source, "$")
     definitions = value.get("$defs", {})
     if not isinstance(definitions, dict):
@@ -122,6 +138,8 @@ def load_summary_schema(
         if definition.get("type") == "object":
             _validate_strict_schema_object(definition, source, f"$defs.{name}")
     return SummarySchema(
+        resource_id=resource_id,
+        version=version.strip(),
         value=value,
         source=source,
         sha256=hashlib.sha256(payload).hexdigest(),
@@ -166,12 +184,28 @@ def load_summary_template(
             "summary template must contain each required placeholder exactly once "
             f"({expected}): {source}"
         )
+    headings = metadata.get("requiredHeadings")
+    if (
+        not isinstance(headings, list)
+        or len(headings) != 5
+        or any(not isinstance(heading, str) for heading in headings)
+        or len(set(headings)) != len(headings)
+        or headings != re.findall(r"(?m)^## .+$", _PLACEHOLDER.sub("", body))
+    ):
+        raise RuntimeError(
+            f"summary template requiredHeadings must match its five sections: {source}"
+        )
+    terms_heading = metadata.get("technicalTermsHeading")
+    if not isinstance(terms_heading, str) or terms_heading not in headings:
+        raise RuntimeError(f"summary template technicalTermsHeading must name a section: {source}")
     return SummaryTemplate(
         template_id=template_id,
         version=version.strip(),
         body=body,
         source=source,
         sha256=hashlib.sha256(payload).hexdigest(),
+        required_headings=tuple(headings),
+        technical_terms_heading=terms_heading,
     )
 
 
@@ -214,9 +248,5 @@ def render_summary_template(template: SummaryTemplate, values: dict[str, str]) -
         if extra:
             details.append("extra=" + ",".join(extra))
         raise ValueError("invalid summary template values: " + "; ".join(details))
-    rendered = template.body
-    for field in REQUIRED_TEMPLATE_FIELDS:
-        rendered = rendered.replace(f"{{{{{field}}}}}", values[field])
-    if _PLACEHOLDER.search(rendered):
-        raise ValueError("summary template contains unresolved placeholders")
+    rendered = _PLACEHOLDER.sub(lambda match: values[match.group(1)], template.body)
     return rendered.rstrip() + "\n"

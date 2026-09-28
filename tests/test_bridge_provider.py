@@ -40,7 +40,6 @@ def _document_json() -> str:
     return json.dumps(
         {
             "title": "Generated title",
-            "description": "Description",
             "summary": "Summary",
             "structuring": [
                 {

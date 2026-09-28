@@ -127,7 +127,6 @@ class SummaryDocument(StrictModel):
         min_length=1,
         description="A concise title derived from the complete summarized content",
     )
-    description: str = Field(min_length=1)
     summary: str = Field(
         min_length=1,
         description=(

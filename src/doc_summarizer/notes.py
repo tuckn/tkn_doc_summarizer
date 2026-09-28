@@ -21,8 +21,8 @@ from doc_summarizer.models import (
 from doc_summarizer.source import split_frontmatter
 from doc_summarizer.summary_resources import SummaryProfile, render_summary_template
 
-SUMMARY_SCHEMA_VERSION = "5.0"
-SERIES_SUMMARY_SCHEMA_VERSION = "6.0"
+SUMMARY_SCHEMA_VERSION = "8.0"
+SERIES_SUMMARY_SCHEMA_VERSION = "9.0"
 COMPARISON_SUMMARY_SCHEMA_VERSION = "7.0"
 DESCRIPTION_MAX_CHARS = 240
 REVIEW_STATUSES = (
@@ -130,7 +130,7 @@ def render_summary(
         "type: summary",
         f"schemaVersion: {yaml_quote(SUMMARY_SCHEMA_VERSION)}",
         f"title: {yaml_quote(source.title)}",
-        f"description: {yaml_quote(compact_description(document.description))}",
+        f"description: {yaml_quote(compact_description(document.conclusion))}",
         f"cover: {yaml_optional(source.cover)}",
         f"url: {yaml_quote(canonical_reference)}",
         "cliptool: Codex",
@@ -142,6 +142,8 @@ def render_summary(
         f"promptSha256: {prompt.sha256}",
         f"summaryProfile: {yaml_quote(profile.name)}",
         f"summaryProfileSha256: {profile.sha256}",
+        f"outputSchemaId: {profile.schema.resource_id}",
+        f"outputSchemaVersion: {yaml_quote(profile.schema.version)}",
         f"outputSchemaSha256: {profile.schema.sha256}",
         f"templateId: {template.template_id}",
         f"templateVersion: {yaml_quote(template.version)}",
@@ -192,7 +194,7 @@ def _render_summary_body(
             "title": title,
             "cover": f"![]({cover})\n\n" if cover else "",
             "summary": document.summary.strip(),
-            "structuring": "\n".join(structuring_lines),
+            "structuring": "\n".join(structuring_lines).rstrip(),
             "key_points": "\n".join(f"- {point.strip()}" for point in document.key_points),
             "technical_terms": "\n".join(f"- {term.strip()}" for term in document.technical_terms),
             "conclusion": document.conclusion.strip(),
@@ -222,7 +224,7 @@ def render_series_summary(
         "type: summary",
         f"schemaVersion: {yaml_quote(SERIES_SUMMARY_SCHEMA_VERSION)}",
         f"title: {yaml_quote(source_set.title)}",
-        f"description: {yaml_quote(compact_description(document.description))}",
+        f"description: {yaml_quote(compact_description(document.conclusion))}",
         f"cover: {yaml_optional(source_set.cover)}",
         f"url: {yaml_quote(canonical_reference)}",
         "cliptool: Codex",
@@ -249,6 +251,8 @@ def render_series_summary(
             f"promptSha256: {prompt.sha256}",
             f"summaryProfile: {yaml_quote(profile.name)}",
             f"summaryProfileSha256: {profile.sha256}",
+            f"outputSchemaId: {profile.schema.resource_id}",
+            f"outputSchemaVersion: {yaml_quote(profile.schema.version)}",
             f"outputSchemaSha256: {profile.schema.sha256}",
             f"templateId: {template.template_id}",
             f"templateVersion: {yaml_quote(template.version)}",

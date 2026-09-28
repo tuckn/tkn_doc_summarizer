@@ -16,6 +16,7 @@ from doc_summarizer.notes import (
     file_uri_to_path,
 )
 from doc_summarizer.source import split_frontmatter
+from doc_summarizer.summary_resources import load_summary_template
 from doc_summarizer.synthesis import metadata_source_set_sha256
 
 LEGACY_SUMMARY_FRONTMATTER_ORDER = [
@@ -77,13 +78,15 @@ MULTI_SOURCE_FRONTMATTER_ORDER = [
     "updated",
     "noteId",
 ]
-PROFILED_SUMMARY_SCHEMA_VERSIONS = ("4.0", SUMMARY_SCHEMA_VERSION)
+PROFILED_SUMMARY_SCHEMA_VERSIONS = ("4.0", "5.0", SUMMARY_SCHEMA_VERSION)
+SERIES_SCHEMA_VERSIONS = ("6.0", SERIES_SUMMARY_SCHEMA_VERSION)
+MULTI_SOURCE_SCHEMA_VERSIONS = (*SERIES_SCHEMA_VERSIONS, COMPARISON_SUMMARY_SCHEMA_VERSION)
+REFINED_SCHEMA_VERSIONS = (SUMMARY_SCHEMA_VERSION, SERIES_SUMMARY_SCHEMA_VERSION)
 SUPPORTED_SUMMARY_SCHEMA_VERSIONS = (
     "2.0",
     "3.0",
     *PROFILED_SUMMARY_SCHEMA_VERSIONS,
-    SERIES_SUMMARY_SCHEMA_VERSION,
-    COMPARISON_SUMMARY_SCHEMA_VERSION,
+    *MULTI_SOURCE_SCHEMA_VERSIONS,
 )
 ENGLISH_HEADINGS = (
     "## 1. Summary",
@@ -149,17 +152,38 @@ def _section(body: str, heading: str, next_heading: str | None = None) -> str:
     return value
 
 
+def _template_profile_for_validation(metadata: dict[str, object]) -> str:
+    profile_name = str(metadata.get("summaryProfile"))
+    # Japanese template 3.0 used the same English headings as default-en.
+    if profile_name == "default-ja" and metadata.get("templateVersion") == "3.0":
+        return "default-en"
+    return profile_name
+
+
 def _summary_headings(metadata: dict[str, object], schema_version: str) -> tuple[str, ...]:
+    if schema_version in REFINED_SCHEMA_VERSIONS:
+        headings = load_summary_template(
+            _template_profile_for_validation(metadata)
+        ).required_headings
+        if (
+            metadata.get("summaryProfile") == "default-ja"
+            and metadata.get("templateVersion") == "3.1"
+        ):
+            return (
+                headings[0],
+                headings[1],
+                "## 3. 重要ポイント",
+                "## 4. 構造化（抽象から具体へ）",
+                headings[4],
+            )
+        return headings
     if schema_version == COMPARISON_SUMMARY_SCHEMA_VERSION:
         return (
             JAPANESE_COMPARISON_HEADINGS
             if metadata.get("summaryProfile") == "compare-ja"
             else ENGLISH_COMPARISON_HEADINGS
         )
-    if (
-        schema_version in (SUMMARY_SCHEMA_VERSION, SERIES_SUMMARY_SCHEMA_VERSION)
-        and metadata.get("summaryProfile") == "default-ja"
-    ):
+    if schema_version in ("5.0", "6.0") and metadata.get("summaryProfile") == "default-ja":
         return JAPANESE_HEADINGS
     return ENGLISH_HEADINGS
 
@@ -171,12 +195,20 @@ def validate_summary_text(text: str, *, verify_source: bool = True) -> list[str]
     except ValueError as exc:
         return [str(exc)]
     schema_version = str(metadata.get("schemaVersion"))
-    if schema_version in (SERIES_SUMMARY_SCHEMA_VERSION, COMPARISON_SUMMARY_SCHEMA_VERSION):
+    if schema_version in MULTI_SOURCE_SCHEMA_VERSIONS:
         expected_order = MULTI_SOURCE_FRONTMATTER_ORDER
     elif schema_version in PROFILED_SUMMARY_SCHEMA_VERSIONS:
         expected_order = SUMMARY_FRONTMATTER_ORDER
     else:
         expected_order = LEGACY_SUMMARY_FRONTMATTER_ORDER
+    if schema_version in REFINED_SCHEMA_VERSIONS:
+        schema_index = expected_order.index("outputSchemaSha256")
+        expected_order = [
+            *expected_order[:schema_index],
+            "outputSchemaId",
+            "outputSchemaVersion",
+            *expected_order[schema_index:],
+        ]
     if _frontmatter_keys(text) != expected_order:
         errors.append("summary frontmatter fields are missing or out of order")
     if metadata.get("type") != "summary":
@@ -203,7 +235,7 @@ def validate_summary_text(text: str, *, verify_source: bool = True) -> list[str]
     )
     source_required = (
         ("synthesisMode", "sourceSetId", "sourceSetSha256", "sources")
-        if schema_version in (SERIES_SUMMARY_SCHEMA_VERSION, COMPARISON_SUMMARY_SCHEMA_VERSION)
+        if schema_version in MULTI_SOURCE_SCHEMA_VERSIONS
         else ("source", "sourceSha256")
     )
     for key in (*common_required, *source_required):
@@ -211,8 +243,7 @@ def validate_summary_text(text: str, *, verify_source: bool = True) -> list[str]
             errors.append(f"{key} must be non-empty")
     if schema_version in (
         *PROFILED_SUMMARY_SCHEMA_VERSIONS,
-        SERIES_SUMMARY_SCHEMA_VERSION,
-        COMPARISON_SUMMARY_SCHEMA_VERSION,
+        *MULTI_SOURCE_SCHEMA_VERSIONS,
     ):
         for key in (
             "summaryProfile",
@@ -226,16 +257,19 @@ def validate_summary_text(text: str, *, verify_source: bool = True) -> list[str]
                 errors.append(f"{key} must be non-empty")
         if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", str(metadata.get("summaryProfile") or "")):
             errors.append("summaryProfile must use a lowercase kebab-case name")
+    if schema_version in REFINED_SCHEMA_VERSIONS:
+        if (
+            not isinstance(metadata.get("outputSchemaVersion"), str)
+            or not str(metadata.get("outputSchemaVersion") or "").strip()
+        ):
+            errors.append("outputSchemaVersion must be a non-empty quoted string")
     digest_keys = ["promptSha256"]
     digest_keys.append(
-        "sourceSetSha256"
-        if schema_version in (SERIES_SUMMARY_SCHEMA_VERSION, COMPARISON_SUMMARY_SCHEMA_VERSION)
-        else "sourceSha256"
+        "sourceSetSha256" if schema_version in MULTI_SOURCE_SCHEMA_VERSIONS else "sourceSha256"
     )
     if schema_version in (
         *PROFILED_SUMMARY_SCHEMA_VERSIONS,
-        SERIES_SUMMARY_SCHEMA_VERSION,
-        COMPARISON_SUMMARY_SCHEMA_VERSION,
+        *MULTI_SOURCE_SCHEMA_VERSIONS,
     ):
         digest_keys.extend(["summaryProfileSha256", "outputSchemaSha256", "templateSha256"])
     for key in digest_keys:
@@ -244,12 +278,13 @@ def validate_summary_text(text: str, *, verify_source: bool = True) -> list[str]
     uuid_keys = ["promptId", "noteId"]
     if schema_version in (
         *PROFILED_SUMMARY_SCHEMA_VERSIONS,
-        SERIES_SUMMARY_SCHEMA_VERSION,
-        COMPARISON_SUMMARY_SCHEMA_VERSION,
+        *MULTI_SOURCE_SCHEMA_VERSIONS,
     ):
         uuid_keys.append("templateId")
-    if schema_version in (SERIES_SUMMARY_SCHEMA_VERSION, COMPARISON_SUMMARY_SCHEMA_VERSION):
+    if schema_version in MULTI_SOURCE_SCHEMA_VERSIONS:
         uuid_keys.append("sourceSetId")
+    if schema_version in REFINED_SCHEMA_VERSIONS:
+        uuid_keys.append("outputSchemaId")
     for key in uuid_keys:
         try:
             normalized = str(uuid.UUID(str(metadata.get(key))))
@@ -257,12 +292,14 @@ def validate_summary_text(text: str, *, verify_source: bool = True) -> list[str]
                 errors.append(f"{key} must use canonical lowercase UUID form")
         except (ValueError, AttributeError):
             errors.append(f"{key} must be a UUID")
-    headings = _summary_headings(metadata, schema_version)
+    try:
+        headings = _summary_headings(metadata, schema_version)
+    except (RuntimeError, ValueError) as exc:
+        return [*errors, f"cannot validate summary profile: {exc}"]
     if schema_version in (
         "3.0",
         *PROFILED_SUMMARY_SCHEMA_VERSIONS,
-        SERIES_SUMMARY_SCHEMA_VERSION,
-        COMPARISON_SUMMARY_SCHEMA_VERSION,
+        *MULTI_SOURCE_SCHEMA_VERSIONS,
     ) and metadata.get("cover"):
         title_heading = f"# {metadata.get('title')}"
         cover_embed = f"![]({metadata.get('cover')})"
@@ -287,24 +324,26 @@ def validate_summary_text(text: str, *, verify_source: bool = True) -> list[str]
                 _section(body, heading, next_heading)
             except ValueError as exc:
                 errors.append(str(exc))
-    terms_index = 5 if schema_version == COMPARISON_SUMMARY_SCHEMA_VERSION else 3
-    terms_match = re.search(
-        rf"(?ms)^{re.escape(headings[terms_index])}\s*$\n"
-        rf"(.*?)^{re.escape(headings[terms_index + 1])}\s*$",
-        body,
-    )
-    if terms_match:
-        terms = [
-            line[2:].strip() for line in terms_match.group(1).splitlines() if line.startswith("- ")
-        ]
-        for term in terms:
-            if not re.match(r"^\*\*.+?\*\*:\s+\S", term):
-                errors.append("technical terms must use '**term**: explanation' format")
-                break
-    if verify_source and schema_version in (
-        SERIES_SUMMARY_SCHEMA_VERSION,
-        COMPARISON_SUMMARY_SCHEMA_VERSION,
-    ):
+    if schema_version in REFINED_SCHEMA_VERSIONS:
+        terms_heading = load_summary_template(
+            _template_profile_for_validation(metadata)
+        ).technical_terms_heading
+        terms_index = headings.index(terms_heading)
+    else:
+        terms_index = 5 if schema_version == COMPARISON_SUMMARY_SCHEMA_VERSION else 3
+    next_heading = headings[terms_index + 1] if terms_index + 1 < len(headings) else None
+    try:
+        terms_section = _section(body, headings[terms_index], next_heading)
+    except ValueError:
+        terms_section = ""
+    terms = [line[2:].strip() for line in terms_section.splitlines() if line.startswith("- ")]
+    if schema_version in REFINED_SCHEMA_VERSIONS and not terms:
+        errors.append("technical terms must contain at least one glossary entry")
+    for term in terms:
+        if not re.match(r"^\*\*.+?\*\*:\s+\S", term):
+            errors.append("technical terms must use '**term**: explanation' format")
+            break
+    if verify_source and schema_version in (*MULTI_SOURCE_SCHEMA_VERSIONS,):
         expected_mode = (
             "compare" if schema_version == COMPARISON_SUMMARY_SCHEMA_VERSION else "series"
         )

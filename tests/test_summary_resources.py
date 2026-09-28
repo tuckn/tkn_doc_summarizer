@@ -3,6 +3,9 @@ from __future__ import annotations
 from copy import deepcopy
 from pathlib import Path
 
+import pytest
+
+import doc_summarizer.summary_resources as resources
 from doc_summarizer.models import SummaryDocument
 from doc_summarizer.prompting import load_summary_prompt
 from doc_summarizer.summary_resources import (
@@ -101,3 +104,31 @@ def test_summary_template_requires_exact_values() -> None:
 
     assert "{{" not in rendered
     assert rendered.endswith("\n")
+
+
+def test_template_does_not_expand_placeholders_in_document_content() -> None:
+    template = load_summary_profile().template
+    values = {field: field for field in REQUIRED_TEMPLATE_FIELDS}
+    values["summary"] = "The source explains {{conclusion}} and {{unknown}}."
+    rendered = render_summary_template(template, values)
+    assert values["summary"] in rendered
+
+
+@pytest.mark.parametrize("field,value", [("id", "invalid"), ("version", 1.0), ("schema", [])])
+def test_invalid_output_schema_metadata_fails_closed(
+    monkeypatch: pytest.MonkeyPatch,
+    field: str,
+    value: object,
+) -> None:
+    import json
+
+    original = resources._resource_bytes
+
+    def modified(name: str, label: str) -> bytes:
+        payload = json.loads(original(name, label))
+        payload[field] = value
+        return json.dumps(payload).encode("utf-8")
+
+    monkeypatch.setattr(resources, "_resource_bytes", modified)
+    with pytest.raises(RuntimeError, match="summary schema"):
+        resources.load_summary_schema()

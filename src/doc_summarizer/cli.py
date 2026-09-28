@@ -345,6 +345,8 @@ def main(argv: list[str] | None = None) -> int:
                 "source": profile.source,
                 "sha256": profile.sha256,
                 "output_schema": {
+                    "id": profile.schema.resource_id,
+                    "version": profile.schema.version,
                     "source": profile.schema.source,
                     "sha256": profile.schema.sha256,
                 },

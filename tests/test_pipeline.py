@@ -34,7 +34,6 @@ class FakeProvider:
         return ProviderResult(
             document=SummaryDocument(
                 title="AI-generated complete summary",
-                description="This is a source-grounded description.",
                 summary="This is the complete summary.",
                 structuring=[
                     SummarySection(
@@ -117,8 +116,11 @@ def test_create_validate_and_idempotent_rerun(tmp_path: Path) -> None:
     text = first.path.read_text(encoding="utf-8")
     metadata, _ = split_frontmatter(text)
     assert metadata["type"] == "summary"
-    assert metadata["schemaVersion"] == "5.0"
-    assert metadata["promptVersion"] == "3.0"
+    assert metadata["schemaVersion"] == "8.0"
+    assert metadata["promptVersion"] == "3.3"
+    assert metadata["description"] == "The source reaches a supported conclusion."
+    assert metadata["outputSchemaId"] == provider.profile.schema.resource_id
+    assert metadata["outputSchemaVersion"] == provider.profile.schema.version
     assert metadata["summaryProfile"] == "default-ja"
     assert metadata["source"] == str(source.resolve())
     assert f"source: '{source.resolve()}'" in text
@@ -129,8 +131,8 @@ def test_create_validate_and_idempotent_rerun(tmp_path: Path) -> None:
     assert metadata["templateSha256"] == provider.profile.template.sha256
     assert "nouns" not in metadata
     assert "requestedModel" not in metadata
-    assert 'schemaVersion: "5.0"' in text
-    assert 'promptVersion: "3.0"' in text
+    assert 'schemaVersion: "8.0"' in text
+    assert 'promptVersion: "3.3"' in text
     assert (
         text.index("# Example article")
         < text.index("![](https://example.com/cover.png)")
@@ -161,7 +163,7 @@ def test_create_validate_and_idempotent_series_summary(tmp_path: Path) -> None:
     assert first.details["source_count"] == 2
     assert not validate_summary(first.path)
     metadata, _ = split_frontmatter(first.path.read_text(encoding="utf-8"))
-    assert metadata["schemaVersion"] == "6.0"
+    assert metadata["schemaVersion"] == "9.0"
     assert metadata["synthesisMode"] == "series"
     assert metadata["title"] == "Complete example article"
     assert len(metadata["sourceSetId"]) == 36
@@ -473,57 +475,151 @@ def test_current_summary_requires_cover_image(tmp_path: Path) -> None:
     assert validate_summary(result.path) == ["summary body must contain the cover image"]
 
 
-@pytest.mark.parametrize(
-    ("schema_version", "remove_cover"),
-    [("2.0", True), ("3.0", False)],
-)
+def _as_legacy_note(text: str, version: str, profile_name: str) -> str:
+    """Build the historical layout independently of the current template."""
+    frontmatter = text.split("\n---\n", 1)[0]
+    fields = {"outputSchemaId", "outputSchemaVersion"}
+    if version in ("2.0", "3.0"):
+        fields.update(
+            {
+                "summaryProfile",
+                "summaryProfileSha256",
+                "outputSchemaSha256",
+                "templateId",
+                "templateVersion",
+                "templateSha256",
+            }
+        )
+    lines = [line for line in frontmatter.splitlines() if line.partition(":")[0] not in fields]
+    lines = [
+        f'schemaVersion: "{version}"' if line.startswith("schemaVersion:") else line
+        for line in lines
+    ]
+    headings = (
+        ["要約", "構造化（抽象から具体へ）", "重要ポイント", "専門用語", "結論"]
+        if version in ("5.0", "6.0") and profile_name == "default-ja"
+        else [
+            "Summary",
+            "Structuring (from abstract to concrete)",
+            "Key points",
+            "Technical terms",
+            "Conclusion",
+        ]
+    )
+    metadata, _ = split_frontmatter(text)
+    body = f"# {metadata['title']}\n\n"
+    if version != "2.0" and metadata.get("cover"):
+        body += f"![]({metadata['cover']})\n\n"
+    contents = [
+        "Historical summary.",
+        "### Topic\n\n- Detail",
+        "- Point",
+        "- **Term**: Meaning.",
+        "Historical conclusion.",
+    ]
+    body += "\n\n".join(
+        f"## {index}. {heading}\n\n{content}"
+        for index, (heading, content) in enumerate(zip(headings, contents, strict=True), 1)
+    )
+    return "\n".join(lines) + "\n---\n\n" + body + "\n"
+
+
+@pytest.mark.parametrize("schema_version", ["2.0", "3.0", "4.0", "5.0"])
+@pytest.mark.parametrize("profile_name", ["default-ja", "default-en"])
 def test_existing_summary_schema_remains_valid(
     tmp_path: Path,
     schema_version: str,
-    remove_cover: bool,
+    profile_name: str,
 ) -> None:
-    result = summarize(str(_source(tmp_path)), _config(tmp_path), provider=FakeProvider())
-    profile_fields = {
-        "summaryProfile",
-        "summaryProfileSha256",
-        "outputSchemaSha256",
-        "templateId",
-        "templateVersion",
-        "templateSha256",
-    }
-    text = result.path.read_text(encoding="utf-8")
-    text = "\n".join(
-        line for line in text.splitlines() if line.partition(":")[0] not in profile_fields
+    result = summarize(
+        str(_source(tmp_path)),
+        _config(tmp_path, profile_name),
+        provider=FakeProvider(profile_name),
     )
-    text = text.replace('schemaVersion: "4.0"', f'schemaVersion: "{schema_version}"')
-    text = text.replace('schemaVersion: "5.0"', f'schemaVersion: "{schema_version}"')
-    text = (
-        text.replace("## 1. 要約", "## 1. Summary")
-        .replace("## 2. 構造化（抽象から具体へ）", "## 2. Structuring (from abstract to concrete)")
-        .replace("## 3. 重要ポイント", "## 3. Key points")
-        .replace("## 4. 専門用語", "## 4. Technical terms")
-        .replace("## 5. 結論", "## 5. Conclusion")
-    )
-    if remove_cover:
-        text = text.replace("![](https://example.com/cover.png)\n\n", "", 1)
+    text = _as_legacy_note(result.path.read_text(encoding="utf-8"), schema_version, profile_name)
     result.path.write_text(text, encoding="utf-8")
-
     assert validate_summary(result.path) == []
 
 
-def test_existing_schema_4_summary_remains_valid(tmp_path: Path) -> None:
-    result = summarize(str(_source(tmp_path)), _config(tmp_path), provider=FakeProvider())
-    text = (
-        result.path.read_text(encoding="utf-8")
-        .replace('schemaVersion: "5.0"', 'schemaVersion: "4.0"')
-        .replace("## 1. 要約", "## 1. Summary")
-        .replace("## 2. 構造化（抽象から具体へ）", "## 2. Structuring (from abstract to concrete)")
-        .replace("## 3. 重要ポイント", "## 3. Key points")
-        .replace("## 4. 専門用語", "## 4. Technical terms")
-        .replace("## 5. 結論", "## 5. Conclusion")
+@pytest.mark.parametrize("profile_name", ["default-ja", "default-en"])
+def test_existing_series_schema_6_remains_valid(tmp_path: Path, profile_name: str) -> None:
+    result = synthesize_series(
+        [str(p) for p in _series_sources(tmp_path)],
+        _config(tmp_path, profile_name),
+        provider=FakeProvider(profile_name),
     )
-    result.path.write_text(text, encoding="utf-8")
+    result.path.write_text(
+        _as_legacy_note(result.path.read_text(encoding="utf-8"), "6.0", profile_name),
+        encoding="utf-8",
+    )
+    assert validate_summary(result.path) == []
 
+
+@pytest.mark.parametrize("profile_name", ["default-ja", "default-en"])
+def test_refined_layout_and_final_glossary_validation(tmp_path: Path, profile_name: str) -> None:
+    result = summarize(
+        str(_source(tmp_path)),
+        _config(tmp_path, profile_name),
+        provider=FakeProvider(profile_name),
+    )
+    text = result.path.read_text(encoding="utf-8")
+    headings = [line for line in text.splitlines() if line.startswith("## ")]
+    expected = [
+        "## 1. Summary",
+        "## 2. Conclusion",
+        "## 3. Key points",
+        "## 4. Structuring (from abstract to concrete)",
+        "## 5. Technical terms",
+    ]
+    if profile_name == "default-ja":
+        expected = [
+            "## 1. 要約",
+            "## 2. 結論",
+            "## 3. 要点",
+            "## 4. 構造（抽象から具体へ）",
+            "## 5. 専門用語",
+        ]
+    assert headings == expected
+    assert f"\n\n{expected[-1]}\n\n" in text
+    assert "timestamp_seconds" not in text
+    result.path.write_text(text.replace("**Term**: ", "Term: "), encoding="utf-8")
+    assert "technical terms must use '**term**: explanation' format" in validate_summary(
+        result.path
+    )
+
+
+def test_profile_update_requires_explicit_overwrite(tmp_path: Path) -> None:
+    provider = FakeProvider()
+    source = _source(tmp_path)
+    result = summarize(str(source), _config(tmp_path), provider=provider)
+    original, _ = split_frontmatter(result.path.read_text(encoding="utf-8"))
+    historical = _as_legacy_note(result.path.read_text(encoding="utf-8"), "5.0", "default-ja")
+    historical = historical.replace(provider.profile.sha256, "0" * 64)
+    result.path.write_text(historical, encoding="utf-8")
+    with pytest.raises(RuntimeError, match="explicit --overwrite"):
+        summarize(str(source), _config(tmp_path), provider=provider)
+    assert provider.calls == 1
+    assert result.path.read_text(encoding="utf-8") == historical
+    updated = summarize(str(source), _config(tmp_path), provider=provider, overwrite=True)
+    metadata, _ = split_frontmatter(updated.path.read_text(encoding="utf-8"))
+    assert metadata["schemaVersion"] == "8.0"
+    assert metadata["noteId"] == original["noteId"]
+    assert metadata["date"] == original["date"]
+
+
+def test_japanese_profile_with_previous_english_headings_remains_valid(tmp_path: Path) -> None:
+    result = summarize(str(_source(tmp_path)), _config(tmp_path), provider=FakeProvider())
+    text = result.path.read_text(encoding="utf-8")
+    text = text.replace('templateVersion: "3.2"', 'templateVersion: "3.0"')
+    for previous, current in (
+        ("## 1. Summary", "## 1. 要約"),
+        ("## 2. Conclusion", "## 2. 結論"),
+        ("## 3. Key points", "## 3. 要点"),
+        ("## 4. Structuring (from abstract to concrete)", "## 4. 構造（抽象から具体へ）"),
+        ("## 5. Technical terms", "## 5. 専門用語"),
+    ):
+        text = text.replace(current, previous)
+    result.path.write_text(text, encoding="utf-8")
     assert validate_summary(result.path) == []
 
 
