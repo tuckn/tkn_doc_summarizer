@@ -190,11 +190,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="back up and replace an existing configuration with different content",
     )
     _verbosity(config_init)
-    config_show = config_commands.add_parser(
-        "show",
-        help="show resolved non-secret configuration and value sources",
+    config_list = config_commands.add_parser(
+        "list",
+        help="list resolved non-secret configuration and value sources as key=value lines",
     )
-    _common(config_show)
+    _common(config_list)
+    config_list.add_argument(
+        "--json",
+        action="store_true",
+        help="print the full configuration result as JSON instead of key=value lines",
+    )
 
     prompt_parser = commands.add_parser("prompt", help="summary prompt operations")
     prompt_commands = prompt_parser.add_subparsers(dest="prompt_command", required=True)
@@ -242,6 +247,33 @@ def _json_default(value: object) -> str:
     if isinstance(value, Path):
         return str(value)
     raise TypeError(f"not JSON serializable: {type(value).__name__}")
+
+
+def config_lines(value: Any, prefix: str = "") -> list[str]:
+    """Flatten configuration into copyable key=value lines, preserving path separators."""
+    if isinstance(value, dict):
+        if not value:
+            return [f"{prefix}={{}}"]
+        return [
+            line
+            for key, item in value.items()
+            for line in config_lines(item, f"{prefix}.{key}" if prefix else key)
+        ]
+    if isinstance(value, list):
+        if not value:
+            return [f"{prefix}=[]"]
+        return [
+            line
+            for index, item in enumerate(value)
+            for line in config_lines(item, f"{prefix}[{index}]")
+        ]
+    if isinstance(value, str):
+        escapes = {code: f"\\u{code:04x}" for code in range(32)}
+        escapes.update({9: r"\t", 10: r"\n", 13: r"\r", 127: r"\u007f"})
+        display = value.translate(escapes)
+    else:
+        display = json.dumps(value, ensure_ascii=False)
+    return [f"{prefix}={display}"]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -378,18 +410,17 @@ def main(argv: list[str] | None = None) -> int:
                     "sha256": comparison_profile.template.sha256,
                 },
             }
-            print(
-                json.dumps(
-                    {
-                        "sources": resolved.sources,
-                        "value_sources": resolved.value_sources,
-                        "values": values,
-                        "generationResolved": generation_resolved,
-                    },
-                    ensure_ascii=False,
-                    indent=2,
-                )
-            )
+            listing_result = {
+                "sources": resolved.sources,
+                "value_sources": resolved.value_sources,
+                "values": values,
+                "generationResolved": generation_resolved,
+            }
+            logger.info("Showing resolved configuration")
+            if args.json:
+                print(json.dumps(listing_result, ensure_ascii=False, indent=2))
+            else:
+                print("\n".join(config_lines(listing_result)))
             return 0
         if args.command == "summarize":
             result = summarize(
