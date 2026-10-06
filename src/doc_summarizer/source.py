@@ -12,6 +12,7 @@ import yaml
 
 from doc_summarizer.io import sha256_bytes
 from doc_summarizer.models import DocumentSource
+from doc_summarizer.yaml_format import load_metadata
 
 logger = logging.getLogger(__name__)
 _TRACKING_QUERY_KEYS = {"fbclid", "gclid", "mc_cid", "mc_eid"}
@@ -27,7 +28,7 @@ def split_frontmatter(text: str) -> tuple[dict[str, Any], str]:
     if end < 0:
         raise ValueError("frontmatter closing delimiter is missing")
     try:
-        metadata = yaml.safe_load(normalized[4:end])
+        metadata = load_metadata(normalized[4:end])
     except yaml.YAMLError as exc:
         raise ValueError(f"invalid YAML frontmatter: {exc}") from exc
     if not isinstance(metadata, dict):
@@ -92,7 +93,7 @@ def _read_source(path: Path, max_input_bytes: int) -> DocumentSource:
         title = match.group(1).strip() if match else absolute.stem
     url_value = str(metadata.get("url") or "").strip() or None
     cover_value = str(metadata.get("cover") or "").strip() or None
-    published_value = metadata.get("published") or metadata.get("date")
+    published_value = metadata.get("published") or metadata.get("created") or metadata.get("date")
     return DocumentSource(
         path=absolute,
         title=title,

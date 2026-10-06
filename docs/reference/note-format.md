@@ -39,7 +39,7 @@ templateVersion: "<version>"
 templateSha256: "<sha256>"
 promptEnvelopeVersion: "<version>"
 reviewStatus: unreviewed
-date: "<作成日時>"
+created: "<作成日時>"
 updated: "<更新日時>"
 noteId: "<uuid>"
 ---
@@ -82,7 +82,7 @@ sources:
 | `templateId`, `templateVersion`, `templateSha256` | ○ | ○ | Markdown テンプレートの識別・版・内容ハッシュ |
 | `promptEnvelopeVersion` | ○ | ○ | 入力を生成指示へ渡す際の包み方の版 |
 | `reviewStatus` | ○ | ○ | 人による確認状態。生成直後は `unreviewed` |
-| `date`, `updated`, `noteId` | ○ | ○ | 作成日時、更新日時、ノート UUID |
+| `created`, `updated`, `noteId` | ○ | ○ | 作成日時、更新日時、ノート UUID |
 
 `reviewStatus` の有効値は `unreviewed`、`pending`、`reviewing`、`accepted`、`needs-revision`、`rejected` です。確認後に変更できますが、明示的な `--overwrite` は確認済み内容も再生成し、`unreviewed` に戻します。
 
@@ -100,3 +100,9 @@ sources:
 単一・連続の英語要約は約120〜200語を目安にします。結論は概要の直後に置き、日本語は通常2〜3段落・約300〜500字、英語は約150〜250語を目安に、結論・根拠と原文にある場合の実用上の含意をまとめます。構造の節は大分類の H3 と、必要に応じた中分類の H4・箇条書きで整理します。動画埋め込みやタイムスタンプは作りません。付随する広告・勧誘は除外しますが、それ自体が主題なら説明に残します。
 
 出典の本文全体や分類用の `nouns` はノートの Frontmatter へ追加しません。Frontmatter と本文の構造は [ノートの検証](../../src/doc_summarizer/validation.py)で確認できます。
+
+## YAML の表記
+
+日付・日時はダブルクォートで囲んだ文字列、Windows パスはシングルクォートで囲みます。パス内のアポストロフィは2つ重ねます。URL スキーム付きの値（`file:`、`https:` など）はパスの規約から除外します。新規の `created`・`updated` はローカル時刻・タイムゾーン付き・秒精度です。既存の作成日時はオフセット・小数秒を含む文字列表記を保持します。
+
+旧ノートの `date` は読み込み・検証時に受け付け、`--overwrite` による再生成では `created` に移します。再利用で `unchanged` となる既存ノートは変更しません。入力 Frontmatter の引用符なし日時も、日時型に変換せず文字列として読み込みます。

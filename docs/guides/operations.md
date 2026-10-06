@@ -64,7 +64,7 @@ tkn-doc-summarizer summarize "<source-file>" --overwrite --dry-run
 tkn-doc-summarizer summarize "<source-file>" --overwrite
 ```
 
-`synthesize` も同じ指定を使えます。同じノートの更新では `noteId` と作成日時 `date` を保持し、`updated` を更新します。既存ノートの識別条件は [出力と実行結果](../reference/output-and-results.md#ファイル名と既存ノートの識別)にまとめています。
+`synthesize` も同じ指定を使えます。同じノートの更新では `noteId` と作成日時 `created` を保持し、`updated` を更新します。既存ノートの識別条件は [出力と実行結果](../reference/output-and-results.md#ファイル名と既存ノートの識別)にまとめています。
 
 ## 失敗や中断からやり直す
 

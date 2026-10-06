@@ -6,6 +6,8 @@ import re
 import uuid
 from pathlib import Path
 
+import yaml
+
 from doc_summarizer.io import sha256_bytes
 from doc_summarizer.models import ComparisonDocument
 from doc_summarizer.notes import (
@@ -18,6 +20,7 @@ from doc_summarizer.notes import (
 from doc_summarizer.source import split_frontmatter
 from doc_summarizer.summary_resources import load_summary_template
 from doc_summarizer.synthesis import metadata_source_set_sha256
+from doc_summarizer.yaml_format import normalize_yaml
 
 LEGACY_SUMMARY_FRONTMATTER_ORDER = [
     "type",
@@ -35,7 +38,7 @@ LEGACY_SUMMARY_FRONTMATTER_ORDER = [
     "promptSha256",
     "promptEnvelopeVersion",
     "reviewStatus",
-    "date",
+    "created",
     "updated",
     "noteId",
 ]
@@ -74,7 +77,7 @@ MULTI_SOURCE_FRONTMATTER_ORDER = [
     "templateSha256",
     "promptEnvelopeVersion",
     "reviewStatus",
-    "date",
+    "created",
     "updated",
     "noteId",
 ]
@@ -194,6 +197,13 @@ def validate_summary_text(text: str, *, verify_source: bool = True) -> list[str]
         metadata, body = split_frontmatter(text)
     except ValueError as exc:
         return [str(exc)]
+    if "created" in metadata:
+        header = text.lstrip("\ufeff").replace("\r\n", "\n").split("\n---\n", 1)[0][4:]
+        try:
+            if normalize_yaml(header) != header:
+                errors.append("dates must use double quotes and Windows paths single quotes")
+        except (ValueError, yaml.YAMLError) as exc:
+            errors.append(f"invalid YAML metadata: {exc}")
     schema_version = str(metadata.get("schemaVersion"))
     if schema_version in MULTI_SOURCE_SCHEMA_VERSIONS:
         expected_order = MULTI_SOURCE_FRONTMATTER_ORDER
@@ -209,6 +219,9 @@ def validate_summary_text(text: str, *, verify_source: bool = True) -> list[str]
             "outputSchemaVersion",
             *expected_order[schema_index:],
         ]
+    # Accept historical notes while all new output uses created.
+    created_key = "created" if "created" in metadata else "date"
+    expected_order = [created_key if key == "created" else key for key in expected_order]
     if _frontmatter_keys(text) != expected_order:
         errors.append("summary frontmatter fields are missing or out of order")
     if metadata.get("type") != "summary":
@@ -229,7 +242,7 @@ def validate_summary_text(text: str, *, verify_source: bool = True) -> list[str]
         "promptVersion",
         "promptSha256",
         "promptEnvelopeVersion",
-        "date",
+        created_key,
         "updated",
         "noteId",
     )

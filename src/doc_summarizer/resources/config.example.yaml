@@ -3,7 +3,7 @@ schema_version: "1.0.0"
 # URL inputs are resolved to Markdown files by recursively searching these roots.
 # File-path inputs do not require source_roots.
 source_roots:
-  - C:\Users\ExampleUser\Documents\Obsidian\WebClips
+  - 'C:\Users\ExampleUser\Documents\Obsidian\WebClips'
 
 output_root: ~/.tkn/doc_summarizer/data/summaries
 reports_root: ~/.tkn/doc_summarizer/state/reports

@@ -454,7 +454,7 @@ def test_overwrite_preserves_identity_and_resets_review(tmp_path: Path) -> None:
     metadata, _ = split_frontmatter(updated.path.read_text(encoding="utf-8"))
     assert updated.status == "updated"
     assert metadata["noteId"] == original_metadata["noteId"]
-    assert metadata["date"] == original_metadata["date"]
+    assert metadata["created"] == original_metadata["created"]
     assert metadata["reviewStatus"] == "unreviewed"
 
 
@@ -604,7 +604,7 @@ def test_profile_update_requires_explicit_overwrite(tmp_path: Path) -> None:
     metadata, _ = split_frontmatter(updated.path.read_text(encoding="utf-8"))
     assert metadata["schemaVersion"] == "8.0"
     assert metadata["noteId"] == original["noteId"]
-    assert metadata["date"] == original["date"]
+    assert metadata["created"] == original["created"]
 
 
 def test_japanese_profile_with_previous_english_headings_remains_valid(tmp_path: Path) -> None:

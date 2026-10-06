@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import re
 import uuid
 from datetime import datetime
@@ -20,6 +19,7 @@ from doc_summarizer.models import (
 )
 from doc_summarizer.source import split_frontmatter
 from doc_summarizer.summary_resources import SummaryProfile, render_summary_template
+from doc_summarizer.yaml_format import quote_scalar
 
 SUMMARY_SCHEMA_VERSION = "8.0"
 SERIES_SUMMARY_SCHEMA_VERSION = "9.0"
@@ -36,7 +36,7 @@ REVIEW_STATUSES = (
 
 
 def yaml_quote(value: str) -> str:
-    return json.dumps(value, ensure_ascii=False)
+    return quote_scalar(value)
 
 
 def yaml_single_quote(value: str) -> str:
@@ -57,10 +57,11 @@ def compact_description(value: str, max_chars: int = DESCRIPTION_MAX_CHARS) -> s
     return normalized[: max_chars - 1].rstrip() + "…"
 
 
-def frontmatter_datetime(value: Any) -> datetime:
+def frontmatter_timestamp(value: str | datetime) -> str:
+    """Preserve existing timestamps; newly generated times use local time and seconds."""
     if isinstance(value, datetime):
-        return value
-    return datetime.fromisoformat(str(value))
+        return value.isoformat(timespec="seconds")
+    return value
 
 
 def path_to_file_uri(path: Path) -> str:
@@ -118,7 +119,7 @@ def render_summary(
     prompt_envelope_version: str,
     source_path_format: SourcePathFormat,
     note_id: str | None = None,
-    created_at: datetime | None = None,
+    created_at: str | datetime | None = None,
 ) -> str:
     created = created_at or now
     source_uri = path_to_file_uri(source.path)
@@ -150,8 +151,8 @@ def render_summary(
         f"templateSha256: {template.sha256}",
         f"promptEnvelopeVersion: {yaml_quote(prompt_envelope_version)}",
         "reviewStatus: unreviewed",
-        f"date: {created.isoformat(timespec='seconds')}",
-        f"updated: {now.isoformat(timespec='seconds')}",
+        f"created: {yaml_quote(frontmatter_timestamp(created))}",
+        f"updated: {yaml_quote(frontmatter_timestamp(now))}",
         f"noteId: {note_id or uuid.uuid4()}",
         "---",
     ]
@@ -212,7 +213,7 @@ def render_series_summary(
     prompt_envelope_version: str,
     source_path_format: SourcePathFormat,
     note_id: str | None = None,
-    created_at: datetime | None = None,
+    created_at: str | datetime | None = None,
 ) -> str:
     created = created_at or now
     first_source = source_set.sources[0].document
@@ -259,8 +260,8 @@ def render_series_summary(
             f"templateSha256: {template.sha256}",
             f"promptEnvelopeVersion: {yaml_quote(prompt_envelope_version)}",
             "reviewStatus: unreviewed",
-            f"date: {created.isoformat(timespec='seconds')}",
-            f"updated: {now.isoformat(timespec='seconds')}",
+            f"created: {yaml_quote(frontmatter_timestamp(created))}",
+            f"updated: {yaml_quote(frontmatter_timestamp(now))}",
             f"noteId: {note_id or uuid.uuid4()}",
             "---",
         ]
@@ -288,7 +289,7 @@ def render_comparison_summary(
     prompt_envelope_version: str,
     source_path_format: SourcePathFormat,
     note_id: str | None = None,
-    created_at: datetime | None = None,
+    created_at: str | datetime | None = None,
 ) -> str:
     created = created_at or now
     first_source = source_set.sources[0].document
@@ -333,8 +334,8 @@ def render_comparison_summary(
             f"templateSha256: {template.sha256}",
             f"promptEnvelopeVersion: {yaml_quote(prompt_envelope_version)}",
             "reviewStatus: unreviewed",
-            f"date: {created.isoformat(timespec='seconds')}",
-            f"updated: {now.isoformat(timespec='seconds')}",
+            f"created: {yaml_quote(frontmatter_timestamp(created))}",
+            f"updated: {yaml_quote(frontmatter_timestamp(now))}",
             f"noteId: {note_id or uuid.uuid4()}",
             "---",
         ]

@@ -22,7 +22,6 @@ from doc_summarizer.models import (
 from doc_summarizer.naming import build_output_path
 from doc_summarizer.notes import (
     REVIEW_STATUSES,
-    frontmatter_datetime,
     render_comparison_summary,
     render_series_summary,
     render_summary,
@@ -364,8 +363,8 @@ def _summarize(
         else None
     )
     created_at = (
-        frontmatter_datetime(existing_metadata["date"])
-        if existing_metadata and existing_metadata.get("date")
+        str(existing_metadata.get("created") or existing_metadata.get("date"))
+        if existing_metadata and (existing_metadata.get("created") or existing_metadata.get("date"))
         else None
     )
     text = render_summary(
@@ -740,8 +739,8 @@ def _synthesize_series(
         else None
     )
     created_at = (
-        frontmatter_datetime(existing_metadata["date"])
-        if existing_metadata and existing_metadata.get("date")
+        str(existing_metadata.get("created") or existing_metadata.get("date"))
+        if existing_metadata and (existing_metadata.get("created") or existing_metadata.get("date"))
         else None
     )
     text = render_series_summary(
@@ -1128,8 +1127,8 @@ def _synthesize_compare(
         else None
     )
     created_at = (
-        frontmatter_datetime(existing_metadata["date"])
-        if existing_metadata and existing_metadata.get("date")
+        str(existing_metadata.get("created") or existing_metadata.get("date"))
+        if existing_metadata and (existing_metadata.get("created") or existing_metadata.get("date"))
         else None
     )
     text = render_comparison_summary(
