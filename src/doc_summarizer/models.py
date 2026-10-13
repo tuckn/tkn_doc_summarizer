@@ -21,6 +21,7 @@ class DocumentSource(StrictModel):
     content: str
     source_sha256: str
     source_size_bytes: int = Field(default=0, ge=0)
+    review_status: str | None = None
 
 
 class SummaryRequest(StrictModel):

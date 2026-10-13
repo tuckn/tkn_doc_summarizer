@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import os
 import re
 import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Any
-from urllib.parse import unquote, urlparse
+from urllib.parse import quote, unquote, urlparse
 
 from doc_summarizer.comparison_resources import ComparisonProfile, render_comparison_template
 from doc_summarizer.config import SourcePathFormat
@@ -69,7 +70,8 @@ def path_to_file_uri(path: Path) -> str:
 
 
 def path_to_native_reference(path: Path) -> str:
-    return str(path.resolve())
+    # Match file URI and source-set identity paths, including Windows junction aliases.
+    return str(path.absolute())
 
 
 def path_to_source_reference(path: Path, source_path_format: SourcePathFormat) -> str:
@@ -275,8 +277,25 @@ def render_series_summary(
     )
 
 
-def _source_citation(source_ids: list[str]) -> str:
+def _source_citation(source_ids: list[str], links: dict[str, str] | None = None) -> str:
+    if links is not None:
+        return " ".join(f"[{source_id}]({links[source_id]})" for source_id in source_ids)
     return "[" + ", ".join(source_ids) + "]"
+
+
+def _source_link(path: Path, output_path: Path | None) -> str:
+    if output_path is not None:
+        try:
+            relative = os.path.relpath(path.absolute(), output_path.absolute().parent)
+        except ValueError:  # Different Windows drives cannot share a relative path.
+            pass
+        else:
+            return quote(Path(relative).as_posix(), safe="/:")
+    return path_to_file_uri(path)
+
+
+def _markdown_label(text: str) -> str:
+    return text.replace("\\", "\\\\").replace("[", r"\[").replace("]", r"\]")
 
 
 def render_comparison_summary(
@@ -288,6 +307,7 @@ def render_comparison_summary(
     profile: ComparisonProfile,
     prompt_envelope_version: str,
     source_path_format: SourcePathFormat,
+    output_path: Path | None = None,
     note_id: str | None = None,
     created_at: str | datetime | None = None,
 ) -> str:
@@ -340,19 +360,24 @@ def render_comparison_summary(
             "---",
         ]
     )
+    links = (
+        {entry.id: _source_link(entry.document.path, output_path) for entry in source_set.sources}
+        if profile.name == "claims-ja"
+        else None
+    )
     common_concepts = "\n".join(
-        f"- {item.text.strip()} {_source_citation(item.source_ids)}"
+        f"- {item.text.strip()} {_source_citation(item.source_ids, links)}"
         for item in document.common_concepts
     )
     perspectives = "\n\n".join(
         f"### {item.heading.strip()}\n\n"
-        f"{item.explanation.strip()} {_source_citation(item.source_ids)}"
+        f"{item.explanation.strip()} {_source_citation(item.source_ids, links)}"
         for item in document.perspectives
     )
     disagreement_groups = [
         f"### {item.topic.strip()}\n\n"
         + "\n".join(
-            f"- {position.text.strip()} {_source_citation(position.source_ids)}"
+            f"- {position.text.strip()} {_source_citation(position.source_ids, links)}"
             for position in item.positions
         )
         for item in document.disagreements
@@ -365,7 +390,7 @@ def render_comparison_summary(
         disagreements = "No explicit material disagreement was identified."
     if document.source_specific_insights:
         source_specific = "\n".join(
-            f"- {item.insight.strip()} [{item.source_id}]"
+            f"- {item.insight.strip()} {_source_citation([item.source_id], links)}"
             for item in document.source_specific_insights
         )
     elif profile.language_profile == "default-ja":
@@ -385,6 +410,15 @@ def render_comparison_summary(
             "source_specific_insights": source_specific,
             "technical_terms": "\n".join(f"- {term.strip()}" for term in document.technical_terms),
             "conclusion": document.conclusion.strip(),
+            "sources": "\n".join(
+                f"- [{entry.id} · {_markdown_label(entry.document.title)}]"
+                f"({_source_link(entry.document.path, output_path)})"
+                + (
+                    f" — reviewStatus: {entry.document.review_status}"
+                    if entry.document.review_status else ""
+                )
+                for entry in source_set.sources
+            ),
         },
     )
 

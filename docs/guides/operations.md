@@ -1,5 +1,33 @@
 # 日常利用と再実行
 
+## 入力を一覧ファイルにまとめる
+
+`synthesize --sources-file FILE` は、UTF-8のテキスト一覧を読み込みます（BOMありも可）。1行に引用符なしのファイルパスまたは保存済みURLを1件書き、空行と `#` から始まる行はコメントとして無視します。空白を含むパスも1件です。行内の `#` はパスやURLの一部として保持します。相対ファイルパスは一覧のフォルダを基準に解決し、入力順を保持します。
+
+```text
+# sources.txt
+articles/first.md
+articles/second.md
+```
+
+```shell
+tkn-doc-summarizer synthesize --sources-file sources.txt --mode compare --dry-run
+```
+
+位置引数 `SOURCE` との混在はできません。2件以上が必要で、同じ実ファイルへの重複指定はエラーです。一覧は2,000,000 bytesまで、文書には通常の `max_input_bytes` と `max_total_input_bytes` が適用されます。一覧を読むだけでは入力文書・一覧を書き換えません。
+
+## 同じ話者の主張を整理する
+
+```shell
+tkn-doc-summarizer synthesize --sources-file sources.txt --mode compare --comparison-profile claims-ja --output "C:\path\to\permanent\speaker-claims.md"
+```
+
+`--comparison-profile` はcompareモード専用で、`compare-ja`・`compare-en`・`claims-ja` から選びます。省略すると従来どおり `--summary-profile` の言語に応じた比較profileです。`claims-ja` は日本語で主張の全体像、繰り返し、論点別の論拠、違い・留保、個別動画の主張、用語、結論、出典一覧を作成します。
+
+各項目のS番号は元の入力ノートへの直接リンクです。同一ドライブなら出力ノートからの相対パス、異なるドライブならfile URIになります。末尾の出典一覧には元ノートのreviewStatusを表示します。全入力が本文の少なくとも1項目で参照され、未知・重複IDがないことを保存前に検査します。引用の内容との一致や主張の正しさは自動検証できません。
+
+話者の自動判定・フォルダからの自動抽出は行いません。対象の要約を選んだ一覧を用意してください。同じ話者による反復は独立した証拠として数えず、臨床経験・因果関係・歴史解釈などは話者の主張として整理します。
+
 初回のインストールと単一文書の作成は [README](../../README.md#セットアップ) を参照してください。通常実行では生成先へ文書を渡し、利用枠や費用を消費します。`--dry-run` は設定・入力・保存予定先を検査し、外部 CLI の起動・認証・通信やファイルの作成はしません。
 
 ## 保存済み記事を URL で指定する

@@ -16,6 +16,8 @@ from doc_summarizer.config import DEFAULT_SUMMARY_PROFILE
 from doc_summarizer.prompting import SummaryPrompt, parse_summary_prompt
 
 COMPARISON_PROFILES_ROOT = "comparison_profiles"
+BUILT_IN_COMPARISON_PROFILES = ("compare-ja", "compare-en", "claims-ja")
+COMPARISON_OPTIONAL_TEMPLATE_FIELDS = frozenset({"sources"})
 COMPARISON_TEMPLATE_FIELDS = frozenset(
     {
         "frontmatter",
@@ -137,8 +139,10 @@ def _load_template(profile_name: str) -> ComparisonTemplate:
         raise RuntimeError(f"comparison template version must be a quoted string: {source}")
     body = text[end + 5 :].strip()
     placeholders = _PLACEHOLDER.findall(body)
-    if set(placeholders) != COMPARISON_TEMPLATE_FIELDS or any(
-        placeholders.count(field) != 1 for field in COMPARISON_TEMPLATE_FIELDS
+    if (
+        not COMPARISON_TEMPLATE_FIELDS <= set(placeholders)
+        or set(placeholders) - COMPARISON_TEMPLATE_FIELDS - COMPARISON_OPTIONAL_TEMPLATE_FIELDS
+        or any(placeholders.count(field) != 1 for field in set(placeholders))
     ):
         expected = ", ".join(sorted(COMPARISON_TEMPLATE_FIELDS))
         raise RuntimeError(
@@ -156,15 +160,27 @@ def _load_template(profile_name: str) -> ComparisonTemplate:
 
 def load_comparison_profile(
     language_profile: str = DEFAULT_SUMMARY_PROFILE,
+    *,
+    profile_name: str | None = None,
 ) -> ComparisonProfile:
+    if profile_name is None:
+        if language_profile not in ("default-ja", "default-en"):
+            raise ValueError(f"unknown comparison language profile: {language_profile}")
+        profile_name = "compare-ja" if language_profile == "default-ja" else "compare-en"
+    if profile_name not in BUILT_IN_COMPARISON_PROFILES:
+        raise ValueError(f"unknown comparison profile: {profile_name}")
+    resource_profile = {
+        "compare-ja": "default-ja", "compare-en": "default-en", "claims-ja": "claims-ja"
+    }[profile_name]
+    language_profile = "default-en" if profile_name == "compare-en" else "default-ja"
     prompt_payload, prompt_source = _resource_bytes(
-        language_profile, "prompt.md", "comparison prompt"
+        resource_profile, "prompt.md", "comparison prompt"
     )
     prompt = parse_summary_prompt(prompt_payload, prompt_source, "built-in")
-    schema = _load_schema(language_profile)
-    template = _load_template(language_profile)
-    name = "compare-ja" if language_profile == "default-ja" else "compare-en"
-    source = f"package:doc_summarizer/{COMPARISON_PROFILES_ROOT}/{language_profile}"
+    schema = _load_schema(resource_profile)
+    template = _load_template(resource_profile)
+    name = profile_name
+    source = f"package:doc_summarizer/{COMPARISON_PROFILES_ROOT}/{resource_profile}"
     identity = json.dumps(
         {
             "name": name,
@@ -187,12 +203,17 @@ def load_comparison_profile(
 
 
 def render_comparison_template(template: ComparisonTemplate, values: dict[str, str]) -> str:
-    if set(values) != COMPARISON_TEMPLATE_FIELDS:
-        missing = sorted(COMPARISON_TEMPLATE_FIELDS - set(values))
-        extra = sorted(set(values) - COMPARISON_TEMPLATE_FIELDS)
+    expected = set(_PLACEHOLDER.findall(template.body))
+    if not expected <= set(values) or (
+        set(values) - COMPARISON_TEMPLATE_FIELDS - COMPARISON_OPTIONAL_TEMPLATE_FIELDS
+    ):
+        missing = sorted(expected - set(values))
+        extra = sorted(
+            set(values) - COMPARISON_TEMPLATE_FIELDS - COMPARISON_OPTIONAL_TEMPLATE_FIELDS
+        )
         raise ValueError(f"invalid comparison template values: missing={missing}; extra={extra}")
     rendered = template.body
-    for field in COMPARISON_TEMPLATE_FIELDS:
+    for field in expected:
         rendered = rendered.replace(f"{{{{{field}}}}}", values[field])
     if _PLACEHOLDER.search(rendered):
         raise ValueError("comparison template contains unresolved placeholders")

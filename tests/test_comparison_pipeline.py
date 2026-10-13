@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import os
+import re
+import subprocess
 from pathlib import Path
+from urllib.parse import unquote
 
 import pytest
 
@@ -211,3 +215,64 @@ def test_comparison_rejects_custom_summary_prompt(tmp_path: Path) -> None:
             config,
             provider=FakeComparisonProvider(),
         )
+
+
+def test_claims_links_reach_local_summaries_and_preserve_review_status(tmp_path: Path) -> None:
+    sources = _sources(tmp_path)
+    sources[0] = sources[0].rename(tmp_path / "日本語 [one] # (summary).md")
+    sources[0].write_text(
+        "---\nreviewStatus: unreviewed\n---\n# First\n\nA claim.", encoding="utf-8"
+    )
+    provider = FakeComparisonProvider()
+    provider.profile = load_comparison_profile(profile_name="claims-ja")
+    provider.prompt = provider.profile.prompt
+    output = tmp_path / "permanent" / "claims.md"
+    result = synthesize_compare(
+        [str(path) for path in sources], _config(tmp_path), provider=provider,
+        explicit_output=output,
+    )
+    assert not validate_summary(result.path)
+    text = result.path.read_text(encoding="utf-8")
+    assert "## 3. 論点別の主張と論拠" in text
+    assert "reviewStatus: unreviewed" in text
+    links = re.findall(r"\[(S\d+)\]\(([^)]+)\)", text)
+    assert {source_id for source_id, _ in links} == {"S1", "S2"}
+    for source_id, link in links:
+        assert (output.parent / unquote(link)).resolve() == sources[int(source_id[1:]) - 1]
+    assert "## 8. 参照した要約ノート" in text
+
+
+def test_claims_reject_an_uncited_input_before_writing(tmp_path: Path) -> None:
+    sources = _sources(tmp_path)
+    third = tmp_path / "third.md"
+    third.write_text("# Third\n\nA distinct claim.", encoding="utf-8")
+    sources.append(third)
+    provider = FakeComparisonProvider()
+    provider.profile = load_comparison_profile(profile_name="claims-ja")
+    provider.prompt = provider.profile.prompt
+    with pytest.raises(RuntimeError, match="claims omit supplied source ids: S3"):
+        synthesize_compare([str(p) for p in sources], _config(tmp_path), provider=provider)
+    assert not (tmp_path / "summaries").exists()
+
+
+def test_native_comparison_through_directory_alias_validates_and_reuses(tmp_path: Path) -> None:
+    physical = tmp_path / "physical"
+    physical.mkdir()
+    _sources(physical)
+    alias = tmp_path / "alias"
+    if os.name == "nt":
+        subprocess.run(
+            ["cmd", "/c", "mklink", "/J", str(alias), str(physical)],
+            check=True, capture_output=True,
+        )
+    else:
+        alias.symlink_to(physical, target_is_directory=True)
+    paths = [alias / "first.md", alias / "second.md"]
+    provider = FakeComparisonProvider()
+    first = synthesize_compare([str(p) for p in paths], _config(tmp_path), provider=provider)
+    assert not validate_summary(first.path)
+    metadata, _ = split_frontmatter(first.path.read_text(encoding="utf-8"))
+    assert [item["source"] for item in metadata["sources"]] == [str(p) for p in paths]
+    second = synthesize_compare([str(p) for p in paths], _config(tmp_path), provider=provider)
+    assert second.status == "unchanged"
+    assert provider.calls == 1

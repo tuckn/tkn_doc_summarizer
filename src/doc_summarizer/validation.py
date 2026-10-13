@@ -123,6 +123,16 @@ ENGLISH_COMPARISON_HEADINGS = (
     "## 6. Technical terms",
     "## 7. Conclusion",
 )
+JAPANESE_CLAIMS_HEADINGS = (
+    "## 1. 主張の全体像",
+    "## 2. 繰り返される主張",
+    "## 3. 論点別の主張と論拠",
+    "## 4. 主張間の違い・留保",
+    "## 5. 個別動画に固有の主張",
+    "## 6. 用語",
+    "## 7. 整理の結論",
+    "## 8. 参照した要約ノート",
+)
 
 
 def _frontmatter_keys(text: str) -> list[str]:
@@ -181,6 +191,8 @@ def _summary_headings(metadata: dict[str, object], schema_version: str) -> tuple
             )
         return headings
     if schema_version == COMPARISON_SUMMARY_SCHEMA_VERSION:
+        if metadata.get("summaryProfile") == "claims-ja":
+            return JAPANESE_CLAIMS_HEADINGS
         return (
             JAPANESE_COMPARISON_HEADINGS
             if metadata.get("summaryProfile") == "compare-ja"
@@ -409,11 +421,14 @@ def validate_comparison_document(
     document: ComparisonDocument,
     *,
     source_ids: set[str],
+    require_all_sources: bool = False,
 ) -> list[str]:
     errors: list[str] = []
+    used_ids: set[str] = set()
 
     def check_ids(values: list[str], location: str, *, minimum_unique: int = 1) -> None:
         unique = set(values)
+        used_ids.update(unique)
         unknown = sorted(unique - source_ids)
         if unknown:
             errors.append(f"{location} references unknown source ids: {', '.join(unknown)}")
@@ -433,11 +448,14 @@ def validate_comparison_document(
                 f"disagreements[{disagreement_index}].positions[{position_index}]",
             )
     for index, insight in enumerate(document.source_specific_insights, start=1):
+        used_ids.add(insight.source_id)
         if insight.source_id not in source_ids:
             errors.append(
                 f"source_specific_insights[{index}] references unknown source id: "
                 f"{insight.source_id}"
             )
+    if require_all_sources and (missing := sorted(source_ids - used_ids)):
+        errors.append("claims omit supplied source ids: " + ", ".join(missing))
     return errors
 
 

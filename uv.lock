@@ -2303,7 +2303,7 @@ wheels = [
 
 [[package]]
 name = "tkn-doc-summarizer"
-version = "0.2.2"
+version = "0.3.0"
 source = { editable = "." }
 dependencies = [
     { name = "pydantic" },

@@ -72,7 +72,9 @@ def provider_for_config(config: AppConfig) -> SummaryProvider:
     )
 
 
-def comparison_provider_for_config(config: AppConfig) -> ComparisonProvider:
+def comparison_provider_for_config(
+    config: AppConfig, *, comparison_profile: str | None = None
+) -> ComparisonProvider:
     if config.summary_prompt is not None:
         raise ValueError("--summary-prompt is not supported with --mode compare")
     return BridgeComparisonProvider(
@@ -80,6 +82,7 @@ def comparison_provider_for_config(config: AppConfig) -> ComparisonProvider:
         overrides=config.generation.selected.overrides,
         legacy_provider=config.generation.selected.legacy_provider,
         summary_profile=config.summary_profile,
+        comparison_profile=comparison_profile,
     )
 
 
@@ -1115,6 +1118,7 @@ def _synthesize_compare(
     document_errors = validate_comparison_document(
         generated.document,
         source_ids={entry.id for entry in source_set.sources},
+        require_all_sources=profile.name == "claims-ja",
     )
     if document_errors:
         raise RuntimeError(
@@ -1139,6 +1143,7 @@ def _synthesize_compare(
         profile=profile,
         prompt_envelope_version=COMPARISON_PROMPT_ENVELOPE_VERSION,
         source_path_format=config.source_path_format,
+        output_path=target,
         note_id=note_id,
         created_at=created_at,
     )
@@ -1190,11 +1195,14 @@ def synthesize_compare(
     overwrite: bool = False,
     dry_run: bool = False,
     provider: ComparisonProvider | None = None,
+    comparison_profile: str | None = None,
 ) -> SummaryResult:
     started_at = datetime.now().astimezone()
     if config.summary_prompt is not None:
         raise ValueError("--summary-prompt is not supported with --mode compare")
-    active_provider = provider or comparison_provider_for_config(config)
+    active_provider = provider or comparison_provider_for_config(
+        config, comparison_profile=comparison_profile
+    )
     try:
         result = _synthesize_compare(
             source_values,

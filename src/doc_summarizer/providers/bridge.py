@@ -202,13 +202,14 @@ class BridgeComparisonProvider(_BridgeConnection):
         overrides: dict[str, Any] | None = None,
         legacy_provider: str | None = None,
         summary_profile: str = DEFAULT_SUMMARY_PROFILE,
+        comparison_profile: str | None = None,
     ) -> None:
         super().__init__(
             bridge_profile=bridge_profile,
             overrides=overrides,
             legacy_provider=legacy_provider,
         )
-        self.profile = load_comparison_profile(summary_profile)
+        self.profile = load_comparison_profile(summary_profile, profile_name=comparison_profile)
         self.prompt = self.profile.prompt
 
     def _request(self, request: ComparisonRequest | None) -> GenerationRequest:
@@ -232,6 +233,7 @@ class BridgeComparisonProvider(_BridgeConnection):
             errors = validate_comparison_document(
                 document,
                 source_ids={source.id for source in request.source_set.sources},
+                require_all_sources=self.profile.name == "claims-ja",
             )
             if errors:
                 raise ValueError("invalid comparison source references")

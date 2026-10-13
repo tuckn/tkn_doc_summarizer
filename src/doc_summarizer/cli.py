@@ -10,7 +10,10 @@ from pathlib import Path
 from typing import Any
 
 from doc_summarizer import __version__
-from doc_summarizer.comparison_resources import load_comparison_profile
+from doc_summarizer.comparison_resources import (
+    BUILT_IN_COMPARISON_PROFILES,
+    load_comparison_profile,
+)
 from doc_summarizer.config import (
     BUILT_IN_SUMMARY_PROFILES,
     DEFAULT_SUMMARY_PROFILE,
@@ -26,6 +29,7 @@ from doc_summarizer.pipeline import (
     synthesize_series,
 )
 from doc_summarizer.prompting import initialize_user_prompt, load_summary_prompt
+from doc_summarizer.source_list import read_source_list
 from doc_summarizer.summary_resources import load_summary_profile
 from doc_summarizer.validation import validate_summary
 
@@ -143,9 +147,19 @@ def build_parser() -> argparse.ArgumentParser:
     )
     synthesize_parser.add_argument(
         "sources",
-        nargs="+",
+        nargs="*",
         metavar="SOURCE",
         help="ordered local file path or URL stored in clipped Frontmatter; requires at least two",
+    )
+    synthesize_parser.add_argument(
+        "--sources-file",
+        type=Path,
+        help="UTF-8 list: one unquoted path/URL per line; relative files use the list directory",
+    )
+    synthesize_parser.add_argument(
+        "--comparison-profile",
+        choices=BUILT_IN_COMPARISON_PROFILES,
+        help="compare mode profile; claims-ja organizes attributed claims with source links",
     )
     synthesize_parser.add_argument(
         "--mode",
@@ -445,15 +459,22 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 0
         if args.command == "synthesize":
-            synthesis = synthesize_compare if args.mode == "compare" else synthesize_series
-            result = synthesis(
-                args.sources,
-                config,
-                title=args.title,
-                explicit_output=args.output,
-                overwrite=args.overwrite,
-                dry_run=args.dry_run,
-            )
+            if args.sources_file is not None and args.sources:
+                raise ValueError("use either SOURCE arguments or --sources-file, not both")
+            if args.comparison_profile is not None and args.mode != "compare":
+                raise ValueError("--comparison-profile requires --mode compare")
+            sources = read_source_list(args.sources_file) if args.sources_file else args.sources
+            if args.mode == "compare":
+                result = synthesize_compare(
+                    sources, config, title=args.title, explicit_output=args.output,
+                    overwrite=args.overwrite, dry_run=args.dry_run,
+                    comparison_profile=args.comparison_profile,
+                )
+            else:
+                result = synthesize_series(
+                    sources, config, title=args.title, explicit_output=args.output,
+                    overwrite=args.overwrite, dry_run=args.dry_run,
+                )
             if result.status == "planned":
                 logger.info("Dry run completed without writes")
             elif result.status == "unchanged":

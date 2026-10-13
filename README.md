@@ -39,6 +39,7 @@
 | 1つの文書を要約する                     | UTF-8 のテキストファイル1件、または保存済み記事の URL | `summarize`                              |
 | 連続するページを1つの記事としてまとめる | ページ順に並べた2件以上の文書                         | `synthesize`（既定は `--mode series`） |
 | 独立した記事の共通点や違いを整理する    | 比較する2件以上の文書                                 | `synthesize --mode compare`              |
+| 同一話者の主張を論点別に整理する | 要約ノート2件以上の一覧ファイル | `synthesize --mode compare --comparison-profile claims-ja --sources-file FILE` |
 
 URL は、保存済み Markdown を探す検索キーです。
 本 CLI は Web ページを取得しないため、URL を指定する場合は Obsidian Web Clipper などで本文を保存しておきます。
@@ -186,6 +187,23 @@ tkn-doc-summarizer validate "<summary-note>"
 
 URL は `source_roots` に保存済みの記事を探すための検索キーです。Web ページは取得しません。
 `synthesize` は入力順序を保持し、比較では出典 ID `S1`、`S2`…を割り当てます。
+
+多数の文書は、UTF-8の一覧ファイルから入力できます。1行に1つのパスまたは保存済み記事のURLを、引用符を付けずに書きます。空行と `#` で始まる行は無視し、相対パスは一覧ファイルのフォルダを基準に解決します。位置引数との混在はできません。
+
+```text
+# sources.txt: このファイルから見た要約ノートの場所
+notes/summary-a.md
+notes/summary-b.md
+```
+
+同じ話者の要約群から主張を整理するには、次のコマンドを使います。
+
+```shell
+tkn-doc-summarizer synthesize --sources-file sources.txt --mode compare --comparison-profile claims-ja --output "C:\path\to\permanent\speaker-claims.md" --dry-run
+tkn-doc-summarizer synthesize --sources-file sources.txt --mode compare --comparison-profile claims-ja --output "C:\path\to\permanent\speaker-claims.md"
+```
+
+`claims-ja` は話者の主張として記述し、繰り返される主張、論点別の主張と論拠、違い・留保、個別動画の主張を整理します。各項目のS番号から元の要約ノートへ直接移動でき、末尾に全出典と確認状態を表示します。元動画の再確認や主張の事実検証は行いません。抽出する話者・入力一覧の選定は利用者が行います。
 
 再実行で入力と生成条件が一致し検証に成功したノートは `unchanged` として再利用します。
 変更がある場合は上書きせず停止します。**`--overwrite` は手動編集・確認済み内容を置き換え、`reviewStatus` を `unreviewed` に戻します。**

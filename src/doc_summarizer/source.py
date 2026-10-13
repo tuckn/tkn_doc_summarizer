@@ -103,6 +103,7 @@ def _read_source(path: Path, max_input_bytes: int) -> DocumentSource:
         content=content,
         source_sha256=sha256_bytes(payload),
         source_size_bytes=len(payload),
+        review_status=str(metadata.get("reviewStatus") or "").strip() or None,
     )
 
 

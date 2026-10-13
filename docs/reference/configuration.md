@@ -125,6 +125,8 @@ tkn-doc-summarizer summarize "<source-file>" --profile claude --dry-run
 
 ## カスタム生成指示
 
+比較用の組み込みprofileは、`synthesize --mode compare --comparison-profile NAME` で選べます。`compare-ja`・`compare-en` は記事比較、`claims-ja` は同一話者の主張整理です。省略時は `generation.summary_profile` に対応する従来の比較profileを使います。このオプションは実行時のみで、設定ファイルに新しいキーを追加しません。
+
 ```shell
 tkn-doc-summarizer prompt init my-summary.md
 ```

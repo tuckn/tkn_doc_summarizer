@@ -109,6 +109,51 @@ def test_compare_dry_run_reports_compare_profile(tmp_path: Path, capsys: object)
     assert not (tmp_path / "output").exists()
 
 
+def test_claims_list_dry_run_uses_selected_profile_without_writes(
+    tmp_path: Path, capsys: object,
+) -> None:
+    (tmp_path / "one.md").write_text("# One\n\nShared idea.", encoding="utf-8")
+    (tmp_path / "two.md").write_text("# Two\n\nAnother claim.", encoding="utf-8")
+    listing = tmp_path / "sources.txt"
+    listing.write_text("one.md\ntwo.md\n", encoding="utf-8")
+    before = sorted(tmp_path.rglob("*"))
+    code = main([
+        "synthesize", "--sources-file", str(listing), "--mode", "compare",
+        "--comparison-profile", "claims-ja", "--output-root", str(tmp_path / "output"),
+        "--reports-root", str(tmp_path / "reports"), "--dry-run",
+    ])
+    assert code == 0
+    captured = capsys.readouterr()  # type: ignore[attr-defined]
+    payload = json.loads(captured.out)
+    assert payload["details"]["summary_profile"] == "claims-ja"
+    assert payload["details"]["source_paths"] == [
+        str(tmp_path / "one.md"), str(tmp_path / "two.md")
+    ]
+    assert sorted(tmp_path.rglob("*")) == before
+
+
+@pytest.mark.parametrize("extra", [["one.md"], ["--comparison-profile", "claims-ja"]])
+def test_rejects_ambiguous_list_or_profile_in_series(
+    tmp_path: Path, capsys: object, extra: list[str],
+) -> None:
+    listing = tmp_path / "sources.txt"
+    listing.write_text("one.md\ntwo.md\n", encoding="utf-8")
+    code = main(["synthesize", "--sources-file", str(listing), "--dry-run", *extra])
+    assert code == 1
+    captured = capsys.readouterr()  # type: ignore[attr-defined]
+    assert not captured.out
+
+
+def test_list_duplicate_aliases_are_rejected(tmp_path: Path, capsys: object) -> None:
+    (tmp_path / "one.md").write_text("# One\n\nClaim.", encoding="utf-8")
+    listing = tmp_path / "sources.txt"
+    listing.write_text("one.md\n./one.md\n", encoding="utf-8")
+    code = main(["synthesize", "--sources-file", str(listing), "--dry-run"])
+    assert code == 1
+    captured = capsys.readouterr()  # type: ignore[attr-defined]
+    assert "same local source" in captured.err
+
+
 def test_validate_invalid_note_returns_nonzero(
     tmp_path: Path,
     capsys: object,
