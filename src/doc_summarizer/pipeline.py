@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from doc_summarizer.config import AppConfig, SourcePathFormat
-from doc_summarizer.io import atomic_write
+from doc_summarizer.io import atomic_write, sha256_bytes
 from doc_summarizer.models import (
     ComparisonRequest,
     DocumentSource,
@@ -913,16 +913,41 @@ def _validate_existing_comparison_identity(
     profile_name: str,
     prompt_id: str,
     target: Path,
+    extended_source_set: DocumentSourceSet | None = None,
 ) -> None:
     if (
         metadata.get("synthesisMode") != "compare"
-        or str(metadata.get("sourceSetId") or "") != source_set_id
         or str(metadata.get("summaryProfile") or "") != profile_name
         or str(metadata.get("promptId") or "") != prompt_id
     ):
         raise FileExistsError(
             "refusing to replace an output that belongs to another source set, "
             f"synthesis mode, summary profile, or prompt: {target}"
+        )
+    if str(metadata.get("sourceSetId") or "") == source_set_id:
+        return
+    if extended_source_set is None:
+        raise FileExistsError(
+            "refusing to replace an output that belongs to another source set; "
+            f"use --extend-sources with --output and --overwrite to add sources: {target}"
+        )
+    previous = metadata.get("sources")
+    if not isinstance(previous, list) or len(previous) < 2:
+        raise ValueError("cannot extend an output without a valid existing source list")
+    try:
+        old_paths = {
+            str(source_reference_to_path(str(entry["source"])).resolve()).casefold()
+            for entry in previous
+        }
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError("cannot extend an output with invalid source references") from exc
+    new_paths = {
+        str(entry.document.path.resolve()).casefold() for entry in extended_source_set.sources
+    }
+    if len(old_paths) != len(previous) or not old_paths < new_paths:
+        raise FileExistsError(
+            "--extend-sources requires every existing source and at least one added source; "
+            f"removal, replacement, or reordering alone is not allowed: {target}"
         )
 
 
@@ -992,6 +1017,7 @@ def _synthesize_compare(
     explicit_output: Path | None,
     overwrite: bool,
     dry_run: bool,
+    extend_sources: bool = False,
 ) -> SummaryResult:
     source_set = resolve_synthesis_sources(
         source_values,
@@ -1017,8 +1043,12 @@ def _synthesize_compare(
         title is None and explicit_output is None and automatic_existing is None
     )
     target = _comparison_target_path(source_set, config, provider, explicit_output)
+    if extend_sources and not target.is_file():
+        raise ValueError("--extend-sources requires an existing output file")
+    target_sha256: str | None = None
     existing_metadata: dict[str, Any] | None = None
     if target.exists() and not generated_target_pending:
+        target_sha256 = sha256_bytes(target.read_bytes())
         existing_metadata = _candidate_metadata(target)
         if existing_metadata is None:
             raise FileExistsError(f"existing output is not a readable generated summary: {target}")
@@ -1028,6 +1058,7 @@ def _synthesize_compare(
             profile_name=profile.name,
             prompt_id=prompt.prompt_id,
             target=target,
+            extended_source_set=source_set if extend_sources else None,
         )
         if title is None:
             stored_title = str(existing_metadata.get("title") or "").strip()
@@ -1150,6 +1181,12 @@ def _synthesize_compare(
     errors = validate_summary_text(text)
     if errors:
         raise RuntimeError("generated comparison validation failed: " + "; ".join(errors))
+    if target_sha256 is not None and (
+        not target.is_file() or sha256_bytes(target.read_bytes()) != target_sha256
+    ):
+        raise FileExistsError(
+            f"comparison output changed during generation; refusing to replace: {target}"
+        )
     status = atomic_write(target, text, overwrite=overwrite)
     persisted_errors = validate_summary(target)
     if persisted_errors:
@@ -1196,8 +1233,11 @@ def synthesize_compare(
     dry_run: bool = False,
     provider: ComparisonProvider | None = None,
     comparison_profile: str | None = None,
+    extend_sources: bool = False,
 ) -> SummaryResult:
     started_at = datetime.now().astimezone()
+    if extend_sources and (explicit_output is None or not overwrite):
+        raise ValueError("--extend-sources requires --output and --overwrite")
     if config.summary_prompt is not None:
         raise ValueError("--summary-prompt is not supported with --mode compare")
     active_provider = provider or comparison_provider_for_config(
@@ -1212,6 +1252,7 @@ def synthesize_compare(
             explicit_output=explicit_output,
             overwrite=overwrite,
             dry_run=dry_run,
+            extend_sources=extend_sources,
         )
     except Exception as exc:
         if dry_run:

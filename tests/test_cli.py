@@ -15,6 +15,13 @@ def test_help_names_url_behavior(capsys: object) -> None:
     assert "does not fetch web pages" in parser.description
 
 
+def test_extend_sources_is_rejected_in_series_mode(capsys: object) -> None:
+    assert main(["synthesize", "--extend-sources", "--dry-run"]) == 1
+    captured = capsys.readouterr()  # type: ignore[attr-defined]
+    assert "--extend-sources requires --mode compare" in captured.err
+    assert not captured.out
+
+
 def test_dry_run_outputs_only_json_to_stdout(
     tmp_path: Path,
     capsys: object,

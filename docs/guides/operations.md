@@ -30,6 +30,19 @@ tkn-doc-summarizer synthesize --sources-file sources.txt --mode compare --compar
 
 初回のインストールと単一文書の作成は [README](../../README.md#セットアップ) を参照してください。通常実行では生成先へ文書を渡し、利用枠や費用を消費します。`--dry-run` は設定・入力・保存予定先を検査し、外部 CLI の起動・認証・通信やファイルの作成はしません。
 
+## 出典を追加して同じノートを更新する
+
+比較・主張整理の入力一覧に新しい要約を追加したときは、次のように更新します。`sources.txt` は既存の全出典と追加出典を含めます。一覧内の順序は変更できますが、旧S番号は再割り当てされる場合があります。
+
+```shell
+tkn-doc-summarizer synthesize --sources-file sources.txt --mode compare --comparison-profile claims-ja --output "C:\path\to\permanent\speaker-claims.md" --extend-sources --overwrite --dry-run
+tkn-doc-summarizer synthesize --sources-file sources.txt --mode compare --comparison-profile claims-ja --output "C:\path\to\permanent\speaker-claims.md" --extend-sources --overwrite
+```
+
+`--extend-sources` はcompareモード専用です。既存ファイルを `--output` で明示し、`--overwrite` を併用する必要があります。入力集合を変更する場合は、既存の全出典が含まれ、新しい出典が増えていることを実ファイルのパスで確認します。出典の削除・置換や、並べ替えだけによる集合変更は拒否します。別のモード・profile・promptへの置換も許可しません。通常の `--overwrite` だけでは異なる入力集合を置き換えません。
+
+本文全体を再生成し、ノートの `noteId` と `created` を保持して `updated` を更新します。手動編集・確認済み内容も置き換え、`reviewStatus` は `unreviewed` に戻ります。必要な版は事前にバックアップしてください。CLIはこの操作のバックアップを自動作成しません。生成中に出力ファイルが編集・削除された場合は、その変更を上書きせず停止します。
+
 ## 保存済み記事を URL で指定する
 
 `source_roots` に設定したフォルダで保存済み Markdown を再帰検索します。入力の Frontmatter には元記事の `url` が必要で、本文は区切りの後に続けます。

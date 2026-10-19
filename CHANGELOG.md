@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.0
+
+- `synthesize --mode compare --extend-sources --output FILE --overwrite` で、出典を追加した比較・主張整理ノートを同じファイルへ更新できます。既存の出典をすべて含み、追加があることを検査し、モード・profile・promptの識別チェックも維持します。
+- 更新時は `noteId` と `created` を保持し、`updated` を更新して `reviewStatus` を `unreviewed` に戻します。既存ファイル・明示した保存先・上書き指定が必要です。`--dry-run` では生成も書き込みも行いません。
+- 比較ノートの生成中に保存先が編集・削除された場合、その変更を上書きせず停止します。
+
 ## 0.3.0
 
 - `synthesize --sources-file FILE` で、UTF-8の一覧から複数の入力を読み込めます。1行1パスまたはURL、空行・`#`で始まるコメント行、BOMに対応し、相対パスは一覧ファイルの場所を基準に解決します。位置引数との混在と重複入力はエラーです。

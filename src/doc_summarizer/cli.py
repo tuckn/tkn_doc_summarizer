@@ -182,6 +182,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="regenerate and replace the matching synthesis note, including reviewed edits",
     )
     synthesize_parser.add_argument(
+        "--extend-sources",
+        action="store_true",
+        help="compare only: allow added sources for an existing --output; requires --overwrite",
+    )
+    synthesize_parser.add_argument(
         "--dry-run",
         action="store_true",
         help="resolve the ordered sources and target without AI execution or writes",
@@ -459,6 +464,8 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 0
         if args.command == "synthesize":
+            if args.extend_sources and args.mode != "compare":
+                raise ValueError("--extend-sources requires --mode compare")
             if args.sources_file is not None and args.sources:
                 raise ValueError("use either SOURCE arguments or --sources-file, not both")
             if args.comparison_profile is not None and args.mode != "compare":
@@ -469,6 +476,7 @@ def main(argv: list[str] | None = None) -> int:
                     sources, config, title=args.title, explicit_output=args.output,
                     overwrite=args.overwrite, dry_run=args.dry_run,
                     comparison_profile=args.comparison_profile,
+                    extend_sources=args.extend_sources,
                 )
             else:
                 result = synthesize_series(

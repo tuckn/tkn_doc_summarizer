@@ -276,3 +276,120 @@ def test_native_comparison_through_directory_alias_validates_and_reuses(tmp_path
     second = synthesize_compare([str(p) for p in paths], _config(tmp_path), provider=provider)
     assert second.status == "unchanged"
     assert provider.calls == 1
+
+
+def test_explicit_extension_preserves_note_identity_and_dry_run_is_read_only(
+    tmp_path: Path,
+) -> None:
+    sources = _sources(tmp_path)
+    config = _config(tmp_path)
+    provider = FakeComparisonProvider()
+    output = tmp_path / "comparison.md"
+    synthesize_compare([str(p) for p in sources], config, provider=provider, explicit_output=output)
+    output.write_text(
+        output.read_text(encoding="utf-8").replace(
+            "reviewStatus: unreviewed", "reviewStatus: accepted"
+        ), encoding="utf-8",
+    )
+    before = output.read_bytes()
+    old, _ = split_frontmatter(before.decode("utf-8"))
+    third = tmp_path / "third.md"
+    third.write_text("# Third\n\nAdditional evidence.", encoding="utf-8")
+    values = [str(p) for p in [*sources, third]]
+    with pytest.raises(RuntimeError, match="another source set"):
+        synthesize_compare(
+            values, config, provider=provider, explicit_output=output, overwrite=True,
+        )
+    planned = synthesize_compare(
+        values, config, provider=provider, explicit_output=output,
+        overwrite=True, extend_sources=True, dry_run=True,
+    )
+    assert planned.status == "planned"
+    assert planned.details["planned_status"] == "updated"
+    assert planned.details["source_count"] == 3
+    assert planned.report_path is None
+    assert output.read_bytes() == before
+    assert provider.calls == 1
+    result = synthesize_compare(
+        values, config, provider=provider, explicit_output=output,
+        overwrite=True, extend_sources=True,
+    )
+    assert result.status == "updated"
+    assert not validate_summary(output)
+    new, _ = split_frontmatter(output.read_text(encoding="utf-8"))
+    assert new["noteId"] == old["noteId"]
+    assert new["created"] == old["created"]
+    assert new["sourceSetId"] != old["sourceSetId"]
+    assert new["reviewStatus"] == "unreviewed"
+    assert len(new["sources"]) == 3
+
+
+def test_extension_rejects_removed_sources_and_other_profiles(tmp_path: Path) -> None:
+    sources = _sources(tmp_path)
+    config = _config(tmp_path)
+    provider = FakeComparisonProvider()
+    output = tmp_path / "comparison.md"
+    synthesize_compare([str(p) for p in sources], config, provider=provider, explicit_output=output)
+    before = output.read_bytes()
+    third = tmp_path / "third.md"
+    third.write_text("# Third\n\nAdditional evidence.", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="every existing source"):
+        synthesize_compare(
+            [str(sources[0]), str(third)], config, provider=provider,
+            explicit_output=output, overwrite=True, extend_sources=True,
+        )
+    other = FakeComparisonProvider("default-en")
+    with pytest.raises(RuntimeError, match="summary profile, or prompt"):
+        synthesize_compare(
+            [str(p) for p in [*sources, third]], config, provider=other,
+            explicit_output=output, overwrite=True, extend_sources=True,
+        )
+    assert output.read_bytes() == before
+    assert provider.calls == 1
+    assert other.calls == 0
+
+
+@pytest.mark.parametrize("output, overwrite", [(None, True), ("note.md", False)])
+def test_extension_requires_explicit_target_and_overwrite(
+    tmp_path: Path, output: str | None, overwrite: bool,
+) -> None:
+    with pytest.raises(ValueError, match="requires --output and --overwrite"):
+        synthesize_compare(
+            [], _config(tmp_path), extend_sources=True, overwrite=overwrite,
+            explicit_output=tmp_path / output if output else None,
+        )
+
+
+def test_extension_cannot_create_a_missing_output(tmp_path: Path) -> None:
+    sources = _sources(tmp_path)
+    provider = FakeComparisonProvider()
+    with pytest.raises(RuntimeError, match="requires an existing output file"):
+        synthesize_compare(
+            [str(p) for p in sources], _config(tmp_path), provider=provider,
+            explicit_output=tmp_path / "missing.md", overwrite=True, extend_sources=True,
+        )
+    assert provider.calls == 0
+
+
+def test_comparison_does_not_overwrite_edits_made_during_generation(tmp_path: Path) -> None:
+    sources = _sources(tmp_path)
+    config = _config(tmp_path)
+    output = tmp_path / "comparison.md"
+    values = [str(p) for p in sources]
+    synthesize_compare(values, config, provider=FakeComparisonProvider(), explicit_output=output)
+
+    class ConcurrentEditProvider(FakeComparisonProvider):
+        def generate(self, request: ComparisonRequest) -> ComparisonProviderResult:
+            result = super().generate(request)
+            output.write_text(
+                output.read_text(encoding="utf-8") + "\nUser edit during generation.\n",
+                encoding="utf-8",
+            )
+            return result
+
+    with pytest.raises(RuntimeError, match="output changed during generation"):
+        synthesize_compare(
+            values, config, provider=ConcurrentEditProvider(), explicit_output=output,
+            overwrite=True,
+        )
+    assert output.read_text(encoding="utf-8").endswith("User edit during generation.\n")
