@@ -17,6 +17,11 @@ SynthesisMode = Literal["series", "compare"]
 
 def source_set_identity_payload(source_set: DocumentSourceSet) -> dict[str, object]:
     return {
+        **(
+            {"conversationDate": source_set.conversation_date}
+            if source_set.conversation_date
+            else {}
+        ),
         "sourceSetId": source_set.source_set_id,
         "mode": source_set.mode,
         "cover": source_set.cover,
@@ -61,6 +66,11 @@ def metadata_source_set_sha256(metadata: dict[str, object]) -> str:
             normalized_entries.append(entry)
         normalized_sources = normalized_entries
     identity = {
+        **(
+            {"conversationDate": metadata["conversationDate"]}
+            if metadata.get("conversationDate")
+            else {}
+        ),
         "sourceSetId": str(metadata.get("sourceSetId") or ""),
         "mode": str(metadata.get("synthesisMode") or ""),
         "cover": metadata.get("cover"),

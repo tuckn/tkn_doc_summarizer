@@ -48,7 +48,7 @@ generationResolved.will_call_provider=false
 | `max_input_bytes` | `2000000` | 1ファイルの上限バイト数。Frontmatter を含む。1以上 |
 | `max_total_input_bytes` | `8000000` | 1回の `synthesize` の合計入力上限バイト数。1以上 |
 | `source_path_format` | `native` | 出典参照の形式。`native` または `file-uri` |
-| `generation.summary_profile` | `default-ja` | 言語・出力形式。`default-ja` / `default-en` |
+| `generation.summary_profile` | `default-ja` | 出力形式。`default-ja` / `default-en` / `conversation-ja` |
 | `generation.active_profile` | `codex` | アプリ内の生成プロファイル |
 | `generation.profiles.codex.bridge_profile` | `codex-default` | Bridge 共有設定の参照先 |
 | `generation.profiles.<name>.overrides` | `{}` | このアプリでの接続設定上書き |
@@ -124,6 +124,8 @@ tkn-doc-summarizer summarize "<source-file>" --profile claude --dry-run
 既定の出典参照は Windows では `source: 'C:\path\to\article.md'` の形式です。URI に変えるには設定の `source_path_format: file-uri` を指定します。この場合は `source: "file:///C:/path/to/article.md"` となります。複数文書では `sources` の各出典へ適用します。両形式とも検証できます。既存ノートの形式を変えるには、手動編集を含む置換に同意したうえで `--overwrite` により再生成します。
 
 ## カスタム生成指示
+
+`conversation-ja` は会話の文字起こし用です。`summarize` と `synthesize --mode series` で使い、会話日は実行時の `--conversation-date YYYY-MM-DD` で指定します。設定ファイルに会話日のキーは追加しません。出典時刻・話者の不確かさ・記録の形式は [会話記録のガイド](../guides/conversations.md) を参照してください。比較に切り替える場合は `--summary-profile default-ja` または `default-en` を明示します。
 
 比較用の組み込みprofileは、`synthesize --mode compare --comparison-profile NAME` で選べます。`compare-ja`・`compare-en` は記事比較、`claims-ja` は同一話者の主張整理です。省略時は `generation.summary_profile` に対応する従来の比較profileを使います。このオプションは実行時のみで、設定ファイルに新しいキーを追加しません。
 

@@ -1,7 +1,7 @@
 # tkn-doc-summarizer: Tkn Doc Summarizer — ローカル文書を要約ノートにする
 
 ローカルのテキスト文書や、事前に Markdown で保存した Web 記事から、要約・論点・専門用語を整理した Markdown ノートを作る CLI です。
-1つの文書の要約、複数ページの記事の統合、複数の記事の比較に使えます。
+1つの文書の要約、複数ページの記事の統合、複数の記事の比較、文字起こしからの会話記録作成に使えます。
 要約は既定で日本語、設定を変えると英語で作成します。
 元の文書への参照と生成条件を記録するため、内容を読み返し、根拠を確認できます。
 
@@ -40,6 +40,7 @@
 | 連続するページを1つの記事としてまとめる | ページ順に並べた2件以上の文書                         | `synthesize`（既定は `--mode series`） |
 | 独立した記事の共通点や違いを整理する    | 比較する2件以上の文書                                 | `synthesize --mode compare`              |
 | 同一話者の主張を論点別に整理する | 要約ノート2件以上の一覧ファイル | `synthesize --mode compare --comparison-profile claims-ja --sources-file FILE` |
+| 分割録音を1つの会話記録にする | 録音順に並べた文字起こし | `synthesize --summary-profile conversation-ja --sources-file FILE` |
 
 URL は、保存済み Markdown を探す検索キーです。
 本 CLI は Web ページを取得しないため、URL を指定する場合は Obsidian Web Clipper などで本文を保存しておきます。
@@ -63,7 +64,7 @@ flowchart LR
 ```
 
 要約プロファイルは、言語・生成指示・出力形式をまとめた設定です。
-`default-ja` は日本語、`default-en` は英語を選びます。
+`default-ja` は日本語、`default-en` は英語の記事要約、`conversation-ja` は日本語の会話記録を作ります。
 生成に使う接続先・モデルは Bridge の共有設定で指定し、アプリの `generation.profiles` から参照します。
 要約ノートのほかに、成功・失敗や生成条件を記録した JSON の実行レポートを保存します。
 
@@ -184,9 +185,12 @@ tkn-doc-summarizer validate "<summary-note>"
 | 連続ページを統合 | `tkn-doc-summarizer synthesize "<page-1>" "<page-2>"` |
 | 独立した記事を比較 | `tkn-doc-summarizer synthesize "<article-a>" "<article-b>" --mode compare` |
 | 英語版を作成 | `tkn-doc-summarizer summarize "<source-file>" --summary-profile default-en` |
+| 分割録音を1つの会話記録にする | `tkn-doc-summarizer synthesize --sources-file sources.txt --summary-profile conversation-ja --conversation-date 2026-10-17` |
 
 URL は `source_roots` に保存済みの記事を探すための検索キーです。Web ページは取得しません。
 `synthesize` は入力順序を保持し、比較では出典 ID `S1`、`S2`…を割り当てます。
+
+`conversation-ja` は「会合・資料情報 → 短い概要 → 話題別の記録 → 約束・予定・願望 → 未確認事項・読み取り上の制約」を作ります。発言ごとにファイルID・ファイル内時刻・元の話者ラベルを残し、実名との対応を未確認／推定／明示確認で区別します。会話日は `--conversation-date YYYY-MM-DD` で指定し、省略時は未確認です。人物分析やプレゼント提案は含めません。使い方と検証範囲は [文字起こしから会話記録を作る](docs/guides/conversations.md) を参照してください。
 
 多数の文書は、UTF-8の一覧ファイルから入力できます。1行に1つのパスまたは保存済み記事のURLを、引用符を付けずに書きます。空行と `#` で始まる行は無視し、相対パスは一覧ファイルのフォルダを基準に解決します。位置引数との混在はできません。
 
@@ -248,7 +252,7 @@ URL 入力の Frontmatter、出典の順序、保存先の変更、再生成と�
 
 既定では要約ノートを `~/.tkn/doc_summarizer/data/summaries/`、JSON 実行レポートを `~/.tkn/doc_summarizer/state/reports/` に保存します。
 要約ノートには出典と生成条件の Frontmatter、本文、確認状態を記録します。
-形式は単一文書が `schemaVersion: "8.0"`、連続ページが `"9.0"`、比較が `"7.0"` です。
+形式は単一文書が `schemaVersion: "8.0"`、連続ページが `"9.0"`、比較が `"7.0"` です。`conversation-ja` は単一録音が `"10.0"`、複数録音が `"11.0"` です。
 
 - [要約ノートの形式](docs/reference/note-format.md)：Frontmatter の YAML 例、形式別の全項目、本文の構成。
 - [保存先、結果、対応範囲](docs/reference/output-and-results.md)：保存場所、識別条件、JSON レポート、終了コード。
@@ -279,6 +283,7 @@ tkn-doc-summarizer --version
 ## 関連資料
 
 - [日常利用と再実行](docs/guides/operations.md)：URL 入力、統合・比較、再生成と中断時の対応。
+- [文字起こしから会話記録を作る](docs/guides/conversations.md)：複数録音の統合、話者の不確かさ、出典時刻と会話日。
 - [設定と生成プロファイル](docs/reference/configuration.md)：設定キー、優先順位、接続先、カスタム指示。
 - [要約ノートの形式](docs/reference/note-format.md)：Frontmatter と本文の形式別一覧。
 - [保存先、結果、対応範囲](docs/reference/output-and-results.md)：実行結果とレポートの読み方。

@@ -16,7 +16,7 @@ from doc_summarizer.io import atomic_write
 
 APP_ID = "doc_summarizer"
 DEFAULT_SUMMARY_PROFILE = "default-ja"
-BUILT_IN_SUMMARY_PROFILES = ("default-ja", "default-en")
+BUILT_IN_SUMMARY_PROFILES = ("default-ja", "default-en", "conversation-ja")
 SourcePathFormat = Literal["native", "file-uri"]
 
 

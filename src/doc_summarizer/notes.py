@@ -14,9 +14,11 @@ from doc_summarizer.comparison_resources import ComparisonProfile, render_compar
 from doc_summarizer.config import SourcePathFormat
 from doc_summarizer.models import (
     ComparisonDocument,
+    ConversationDocument,
+    ConversationItem,
     DocumentSource,
     DocumentSourceSet,
-    SummaryDocument,
+    GeneratedSummaryDocument,
 )
 from doc_summarizer.source import split_frontmatter
 from doc_summarizer.summary_resources import SummaryProfile, render_summary_template
@@ -25,6 +27,8 @@ from doc_summarizer.yaml_format import quote_scalar
 SUMMARY_SCHEMA_VERSION = "8.0"
 SERIES_SUMMARY_SCHEMA_VERSION = "9.0"
 COMPARISON_SUMMARY_SCHEMA_VERSION = "7.0"
+CONVERSATION_SCHEMA_VERSION = "10.0"
+CONVERSATION_SERIES_SCHEMA_VERSION = "11.0"
 DESCRIPTION_MAX_CHARS = 240
 REVIEW_STATUSES = (
     "unreviewed",
@@ -114,7 +118,7 @@ def file_uri_to_path(value: str) -> Path:
 def render_summary(
     *,
     source: DocumentSource,
-    document: SummaryDocument,
+    document: GeneratedSummaryDocument,
     now: datetime,
     generator: str,
     profile: SummaryProfile,
@@ -122,21 +126,35 @@ def render_summary(
     source_path_format: SourcePathFormat,
     note_id: str | None = None,
     created_at: str | datetime | None = None,
+    conversation_date: str | None = None,
 ) -> str:
     created = created_at or now
     source_uri = path_to_file_uri(source.path)
     canonical_reference = source.url or source_uri
     prompt = profile.prompt
     template = profile.template
+    schema_version = (
+        CONVERSATION_SCHEMA_VERSION
+        if isinstance(document, ConversationDocument)
+        else SUMMARY_SCHEMA_VERSION
+    )
+    description = (
+        document.summary if isinstance(document, ConversationDocument) else document.conclusion
+    )
     frontmatter_lines = [
         "---",
         "type: summary",
-        f"schemaVersion: {yaml_quote(SUMMARY_SCHEMA_VERSION)}",
+        f"schemaVersion: {yaml_quote(schema_version)}",
         f"title: {yaml_quote(source.title)}",
-        f"description: {yaml_quote(compact_description(document.conclusion))}",
+        f"description: {yaml_quote(compact_description(description))}",
         f"cover: {yaml_optional(source.cover)}",
         f"url: {yaml_quote(canonical_reference)}",
         "cliptool: Codex",
+        *(
+            [f"conversationDate: {yaml_optional(conversation_date)}"]
+            if isinstance(document, ConversationDocument)
+            else []
+        ),
         f"source: {yaml_source_reference(source.path, source_path_format)}",
         f"sourceSha256: {source.source_sha256}",
         f"generator: {yaml_quote(generator)}",
@@ -164,6 +182,8 @@ def render_summary(
         cover=source.cover,
         document=document,
         profile=profile,
+        sources={"S1": source},
+        conversation_date=conversation_date,
     )
 
 
@@ -172,9 +192,21 @@ def _render_summary_body(
     frontmatter_lines: list[str],
     title: str,
     cover: str | None,
-    document: SummaryDocument,
+    document: GeneratedSummaryDocument,
     profile: SummaryProfile,
+    sources: dict[str, DocumentSource],
+    conversation_date: str | None,
 ) -> str:
+    if isinstance(document, ConversationDocument):
+        return _render_conversation_body(
+            frontmatter_lines=frontmatter_lines,
+            title=title,
+            cover=cover,
+            document=document,
+            profile=profile,
+            sources=sources,
+            conversation_date=conversation_date,
+        )
     structuring_lines: list[str] = []
     for section in document.structuring:
         structuring_lines.extend([f"### {section.heading.strip()}", ""])
@@ -208,7 +240,7 @@ def _render_summary_body(
 def render_series_summary(
     *,
     source_set: DocumentSourceSet,
-    document: SummaryDocument,
+    document: GeneratedSummaryDocument,
     now: datetime,
     generator: str,
     profile: SummaryProfile,
@@ -222,15 +254,28 @@ def render_series_summary(
     canonical_reference = first_source.url or path_to_file_uri(first_source.path)
     prompt = profile.prompt
     template = profile.template
+    schema_version = (
+        CONVERSATION_SERIES_SCHEMA_VERSION
+        if isinstance(document, ConversationDocument)
+        else SERIES_SUMMARY_SCHEMA_VERSION
+    )
+    description = (
+        document.summary if isinstance(document, ConversationDocument) else document.conclusion
+    )
     frontmatter_lines = [
         "---",
         "type: summary",
-        f"schemaVersion: {yaml_quote(SERIES_SUMMARY_SCHEMA_VERSION)}",
+        f"schemaVersion: {yaml_quote(schema_version)}",
         f"title: {yaml_quote(source_set.title)}",
-        f"description: {yaml_quote(compact_description(document.conclusion))}",
+        f"description: {yaml_quote(compact_description(description))}",
         f"cover: {yaml_optional(source_set.cover)}",
         f"url: {yaml_quote(canonical_reference)}",
         "cliptool: Codex",
+        *(
+            [f"conversationDate: {yaml_optional(source_set.conversation_date)}"]
+            if isinstance(document, ConversationDocument)
+            else []
+        ),
         "synthesisMode: series",
         f"sourceSetId: {source_set.source_set_id}",
         f"sourceSetPublished: {yaml_optional(source_set.published)}",
@@ -274,6 +319,81 @@ def render_series_summary(
         cover=source_set.cover,
         document=document,
         profile=profile,
+        sources={entry.id: entry.document for entry in source_set.sources},
+        conversation_date=source_set.conversation_date,
+    )
+
+
+def _render_conversation_body(
+    *,
+    frontmatter_lines: list[str],
+    title: str,
+    cover: str | None,
+    document: ConversationDocument,
+    profile: SummaryProfile,
+    sources: dict[str, DocumentSource],
+    conversation_date: str | None,
+) -> str:
+    kinds = {
+        "statement": "発言・体験談",
+        "hearsay": "伝聞",
+        "joke": "冗談",
+        "speculation": "推測",
+        "wish": "願望",
+        "plan": "予定案",
+        "commitment": "約束・決定",
+    }
+    identities = {"unknown": "未確認", "inferred": "推定", "confirmed": "明示確認"}
+
+    def line(value: str) -> str:
+        return " ".join(value.split())
+
+    def item_text(item: ConversationItem) -> str:
+        citations = " ".join(
+            f"[{e.source_id} {e.start + '–' + str(e.end) if e.start else '時刻不明'}"
+            f" / {e.speaker_label or '話者ラベルなし'}]"
+            f"({path_to_file_uri(sources[e.source_id].path)})"
+            for e in item.evidence
+        )
+        return (
+            f"- {line(item.text)}（種別: {kinds[item.kind]} / 対象: {line(item.subject)} / "
+            f"話者: {line(item.speaker_name or '不明')}・{identities[item.identity_status]} / "
+            f"同定根拠: {line(item.identity_basis)} / 留保: {line(item.uncertainty)}） {citations}"
+        )
+
+    meeting = [
+        f"- 会話日: {conversation_date or '未確認'}（文字起こし・要約の生成日とは別）",
+        "- 参加者と実名対応: 下記の各項目で確認状態を表示。話者ラベルから人数は確定しない。",
+        "- 出典時刻: 各ファイルの先頭からの経過時間。録音間でリセットされる。",
+        "- 同じ話者ラベルでも別ファイルでは別の識別子。同一ファイル内の分離誤りもあり得る。",
+        *[
+            f"- [{source_id} · {_markdown_label(source.title)}]({path_to_file_uri(source.path)})"
+            + (f" — 資料の記録日時: {source.published}" if source.published else "")
+            for source_id, source in sources.items()
+        ],
+    ]
+    return render_summary_template(
+        profile.template,
+        {
+            "frontmatter": "\n".join(frontmatter_lines),
+            "title": title,
+            "cover": f"![]({cover})\n\n" if cover else "",
+            "meeting": "\n".join(meeting),
+            "summary": document.summary.strip(),
+            "topics": "\n\n".join(
+                f"### {line(topic.heading)}\n\n" + "\n".join(map(item_text, topic.items))
+                for topic in document.topics
+            ),
+            "plans": "\n".join(map(item_text, document.plans))
+            or "記録対象の約束・予定・願望は抽出されていません。",
+            "unconfirmed": (
+                "\n".join(map(item_text, document.unconfirmed))
+                or "個別の未確認項目は抽出されていません。"
+            )
+            + "\n\n### 読み取り上の制約\n\n"
+            + "- 文字起こしに基づく記録。音声の再確認・発言内容の事実検証は行っていません。\n"
+            + "\n".join(f"- {line(value)}" for value in document.limitations),
+        },
     )
 
 

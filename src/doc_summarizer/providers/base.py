@@ -9,7 +9,7 @@ from doc_summarizer.comparison_resources import ComparisonProfile
 from doc_summarizer.models import (
     ComparisonDocument,
     ComparisonRequest,
-    SummaryDocument,
+    GeneratedSummaryDocument,
     SummaryGenerationRequest,
 )
 from doc_summarizer.prompting import SummaryPrompt
@@ -18,7 +18,7 @@ from doc_summarizer.summary_resources import SummaryProfile
 
 @dataclass(frozen=True)
 class ProviderResult:
-    document: SummaryDocument
+    document: GeneratedSummaryDocument
     provider: str
     model: str | None
     generator: str

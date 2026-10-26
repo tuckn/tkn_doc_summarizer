@@ -19,7 +19,7 @@ tkn-doc-summarizer --version
 tkn-doc-summarizer validate "<summary-note>"
 ```
 
-`validate` は `schemaVersion` 2.0〜9.0 を読み取り専用で検証します。旧版の見出し順もその版の規則で判定します。Frontmatter の必須項目・順序・生成情報・確認状態、本文の見出し、出典ファイルとハッシュを検査し、複数文書はすべての出典と `sourceSetSha256` も照合します。現在の新規出力の形式は [要約ノートの形式](../reference/note-format.md)を参照してください。
+`validate` は `schemaVersion` 2.0〜11.0 を読み取り専用で検証します。旧版の見出し順もその版の規則で判定します。Frontmatter の必須項目・順序・生成情報・確認状態、本文の見出し、出典ファイルとハッシュを検査し、複数文書はすべての出典と `sourceSetSha256` も照合します。会話記録は出典時刻と話者ラベルも照合します。現在の新規出力の形式は [要約ノートの形式](../reference/note-format.md)を参照してください。
 
 元文書を移動・変更すると検証が失敗することがあります。形式の検証と、現在の生成条件で再利用できるかの判定は別です。新形式への再生成や、生成条件が変わったノートの更新には明示的な `--overwrite` が必要です。
 
@@ -59,7 +59,7 @@ uv tool install -e . --reinstall
 
 ## 同梱の要約プロファイルを変更する
 
-生成指示、JSON 出力形式、Markdown テンプレートは1組のリソースです。単一文書・連続ページは `src/doc_summarizer/summary_profiles/`、比較は `src/doc_summarizer/comparison_profiles/` にあり、それぞれ `default-ja/` と `default-en/` を持ちます。
+生成指示、JSON 出力形式、Markdown テンプレートは1組のリソースです。単一文書・連続ページは `src/doc_summarizer/summary_profiles/`、比較は `src/doc_summarizer/comparison_profiles/` にあり、それぞれ `default-ja/` と `default-en/` を持ちます。会話記録は `summary_profiles/conversation-ja/`、主張整理は `comparison_profiles/claims-ja/` です。
 
 | ファイル | 担当 |
 | --- | --- |

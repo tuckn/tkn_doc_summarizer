@@ -139,6 +139,10 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="resolve source and target without AI execution or any writes",
     )
+    summary_parser.add_argument(
+        "--conversation-date",
+        help="conversation-ja meeting date, YYYY-MM-DD; unknown if omitted",
+    )
     _common(summary_parser)
 
     synthesize_parser = commands.add_parser(
@@ -165,7 +169,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--mode",
         choices=("series", "compare"),
         default="series",
-        help="series joins consecutive pages; compare analyzes independent sources",
+        help="series joins pages or conversation-ja recordings; compare analyzes separate sources",
     )
     synthesize_parser.add_argument(
         "--title",
@@ -192,6 +196,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="resolve the ordered sources and target without AI execution or writes",
     )
     _common(synthesize_parser)
+    synthesize_parser.add_argument(
+        "--conversation-date",
+        help="conversation-ja meeting date, YYYY-MM-DD; unknown if omitted",
+    )
 
     validate_parser = commands.add_parser("validate", help="validate a generated summary note")
     validate_parser.add_argument("path", type=Path)
@@ -377,7 +385,11 @@ def main(argv: list[str] | None = None) -> int:
                 profile_name=config.summary_profile,
             )
             profile = load_summary_profile(config.summary_profile, prompt=prompt)
-            comparison_profile = load_comparison_profile(config.summary_profile)
+            comparison_profile = load_comparison_profile(
+                "default-ja"
+                if config.summary_profile == "conversation-ja"
+                else config.summary_profile
+            )
             values = public_config(config)
             generation_resolved = provider_for_config(config).plan() | {
                 "active_profile": config.generation.active_profile,
@@ -448,6 +460,7 @@ def main(argv: list[str] | None = None) -> int:
                 explicit_output=args.output,
                 overwrite=args.overwrite,
                 dry_run=args.dry_run,
+                conversation_date=args.conversation_date,
             )
             if result.status == "planned":
                 logger.info("Dry run completed without writes")
@@ -464,6 +477,8 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 0
         if args.command == "synthesize":
+            if args.conversation_date is not None and args.mode != "series":
+                raise ValueError("--conversation-date requires --mode series")
             if args.extend_sources and args.mode != "compare":
                 raise ValueError("--extend-sources requires --mode compare")
             if args.sources_file is not None and args.sources:
@@ -480,8 +495,13 @@ def main(argv: list[str] | None = None) -> int:
                 )
             else:
                 result = synthesize_series(
-                    sources, config, title=args.title, explicit_output=args.output,
-                    overwrite=args.overwrite, dry_run=args.dry_run,
+                    sources,
+                    config,
+                    title=args.title,
+                    explicit_output=args.output,
+                    overwrite=args.overwrite,
+                    dry_run=args.dry_run,
+                    conversation_date=args.conversation_date,
                 )
             if result.status == "planned":
                 logger.info("Dry run completed without writes")

@@ -8,10 +8,17 @@ from pathlib import Path
 
 import yaml
 
+from doc_summarizer.conversation import (
+    CITATION,
+    evidence_errors,
+    validate_conversation_date,
+)
 from doc_summarizer.io import sha256_bytes
-from doc_summarizer.models import ComparisonDocument
+from doc_summarizer.models import ComparisonDocument, ConversationEvidence
 from doc_summarizer.notes import (
     COMPARISON_SUMMARY_SCHEMA_VERSION,
+    CONVERSATION_SCHEMA_VERSION,
+    CONVERSATION_SERIES_SCHEMA_VERSION,
     REVIEW_STATUSES,
     SERIES_SUMMARY_SCHEMA_VERSION,
     SUMMARY_SCHEMA_VERSION,
@@ -81,10 +88,20 @@ MULTI_SOURCE_FRONTMATTER_ORDER = [
     "updated",
     "noteId",
 ]
-PROFILED_SUMMARY_SCHEMA_VERSIONS = ("4.0", "5.0", SUMMARY_SCHEMA_VERSION)
-SERIES_SCHEMA_VERSIONS = ("6.0", SERIES_SUMMARY_SCHEMA_VERSION)
+PROFILED_SUMMARY_SCHEMA_VERSIONS = (
+    "4.0",
+    "5.0",
+    SUMMARY_SCHEMA_VERSION,
+    CONVERSATION_SCHEMA_VERSION,
+)
+SERIES_SCHEMA_VERSIONS = ("6.0", SERIES_SUMMARY_SCHEMA_VERSION, CONVERSATION_SERIES_SCHEMA_VERSION)
 MULTI_SOURCE_SCHEMA_VERSIONS = (*SERIES_SCHEMA_VERSIONS, COMPARISON_SUMMARY_SCHEMA_VERSION)
-REFINED_SCHEMA_VERSIONS = (SUMMARY_SCHEMA_VERSION, SERIES_SUMMARY_SCHEMA_VERSION)
+CONVERSATION_SCHEMA_VERSIONS = (CONVERSATION_SCHEMA_VERSION, CONVERSATION_SERIES_SCHEMA_VERSION)
+REFINED_SCHEMA_VERSIONS = (
+    SUMMARY_SCHEMA_VERSION,
+    SERIES_SUMMARY_SCHEMA_VERSION,
+    *CONVERSATION_SCHEMA_VERSIONS,
+)
 SUPPORTED_SUMMARY_SCHEMA_VERSIONS = (
     "2.0",
     "3.0",
@@ -231,6 +248,20 @@ def validate_summary_text(text: str, *, verify_source: bool = True) -> list[str]
             "outputSchemaVersion",
             *expected_order[schema_index:],
         ]
+    if schema_version in CONVERSATION_SCHEMA_VERSIONS:
+        index = expected_order.index("cliptool") + 1
+        expected_order = [*expected_order[:index], "conversationDate", *expected_order[index:]]
+        if metadata.get("summaryProfile") != "conversation-ja":
+            errors.append("conversation schema requires summaryProfile conversation-ja")
+        try:
+            date_value = metadata.get("conversationDate")
+            if date_value is not None and not isinstance(date_value, str):
+                raise ValueError("conversationDate must be a quoted date or null")
+            validate_conversation_date(date_value)
+        except ValueError as exc:
+            errors.append(str(exc))
+    elif metadata.get("summaryProfile") == "conversation-ja":
+        errors.append("conversation-ja requires a conversation schema version")
     # Accept historical notes while all new output uses created.
     created_key = "created" if "created" in metadata else "date"
     expected_order = [created_key if key == "created" else key for key in expected_order]
@@ -349,10 +380,14 @@ def validate_summary_text(text: str, *, verify_source: bool = True) -> list[str]
                 _section(body, heading, next_heading)
             except ValueError as exc:
                 errors.append(str(exc))
-    if schema_version in REFINED_SCHEMA_VERSIONS:
+    if (
+        schema_version in REFINED_SCHEMA_VERSIONS
+        and schema_version not in CONVERSATION_SCHEMA_VERSIONS
+    ):
         terms_heading = load_summary_template(
             _template_profile_for_validation(metadata)
         ).technical_terms_heading
+        assert terms_heading is not None
         terms_index = headings.index(terms_heading)
     else:
         terms_index = 5 if schema_version == COMPARISON_SUMMARY_SCHEMA_VERSION else 3
@@ -362,7 +397,12 @@ def validate_summary_text(text: str, *, verify_source: bool = True) -> list[str]
     except ValueError:
         terms_section = ""
     terms = [line[2:].strip() for line in terms_section.splitlines() if line.startswith("- ")]
-    if schema_version in REFINED_SCHEMA_VERSIONS and not terms:
+    if schema_version in CONVERSATION_SCHEMA_VERSIONS:
+        terms = []
+        errors.extend(
+            _validate_conversation_body(metadata, body, headings, verify_source=verify_source)
+        )
+    elif schema_version in REFINED_SCHEMA_VERSIONS and not terms:
         errors.append("technical terms must contain at least one glossary entry")
     for term in terms:
         if not re.match(r"^\*\*.+?\*\*:\s+\S", term):
@@ -414,6 +454,71 @@ def validate_summary_text(text: str, *, verify_source: bool = True) -> list[str]
                 errors.append("sourceSha256 does not match the referenced source file")
         except (OSError, ValueError) as exc:
             errors.append(f"cannot validate source reference: {exc}")
+    return errors
+
+
+def _validate_conversation_body(
+    metadata: dict[str, object],
+    body: str,
+    headings: tuple[str, ...],
+    *,
+    verify_source: bool,
+) -> list[str]:
+    errors: list[str] = []
+    if str(metadata.get("schemaVersion")) == CONVERSATION_SERIES_SCHEMA_VERSION:
+        entries = metadata.get("sources")
+        if not isinstance(entries, list) or any(not isinstance(e, dict) for e in entries):
+            return ["conversation sources must be mappings"]
+        references = {str(e.get("id")): str(e.get("source")) for e in entries}
+    else:
+        references = {"S1": str(metadata.get("source"))}
+    citations = list(CITATION.finditer(body))
+    used = {citation["id"] for citation in citations}
+    if not citations or used != set(references):
+        errors.append("conversation citations must cover exactly the supplied source ids")
+    for index in (2, 3, 4):
+        try:
+            section = _section(body, headings[index], headings[index + 1] if index < 4 else None)
+        except ValueError:
+            continue
+        if index == 4:
+            section = section.split("### 読み取り上の制約", 1)[0]
+        for line in section.splitlines():
+            if line.startswith("- ") and (
+                not CITATION.search(line)
+                or any(
+                    label not in line for label in ("種別:", "対象:", "話者:", "同定根拠:", "留保:")
+                )
+            ):
+                errors.append("conversation record items require citations and attribution fields")
+    contents: dict[str, str] = {}
+    for citation in citations:
+        source_id = citation["id"]
+        if source_id not in references:
+            errors.append("conversation citation references an unknown source id")
+            continue
+        try:
+            source_path = file_uri_to_path(references[source_id])
+            if citation["link"] != source_path.absolute().as_uri():
+                errors.append("conversation citation link does not match its source id")
+            time = citation["time"]
+            start, end = (None, None) if time == "時刻不明" else tuple(time.split("–", 1))
+            evidence = ConversationEvidence(
+                source_id=source_id,
+                start=start,
+                end=end,
+                speaker_label=None
+                if citation["speaker"] == "話者ラベルなし"
+                else citation["speaker"],
+            )
+            if verify_source:
+                if source_id not in contents:
+                    _, contents[source_id] = split_frontmatter(
+                        source_path.read_text(encoding="utf-8-sig")
+                    )
+                errors.extend(evidence_errors(evidence, contents[source_id]))
+        except (OSError, ValueError) as exc:
+            errors.append(f"cannot validate conversation evidence: {exc}")
     return errors
 
 

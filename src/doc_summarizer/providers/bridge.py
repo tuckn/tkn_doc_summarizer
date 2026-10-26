@@ -20,9 +20,12 @@ from tkn_genai_bridge.models import PROVIDER_NAMES
 
 from doc_summarizer.comparison_resources import load_comparison_profile
 from doc_summarizer.config import DEFAULT_SUMMARY_PROFILE
+from doc_summarizer.conversation import request_sources, validate_conversation_document
 from doc_summarizer.models import (
     ComparisonDocument,
     ComparisonRequest,
+    ConversationDocument,
+    GeneratedSummaryDocument,
     SummaryDocument,
     SummaryGenerationRequest,
 )
@@ -170,7 +173,11 @@ class BridgeProvider(_BridgeConnection):
             if request
             else self.prompt.instructions,
             output_schema=self.profile.schema.value,
-            schema_name="document_summary",
+            schema_name=(
+                "conversation_record"
+                if self.profile.name == "conversation-ja"
+                else "document_summary"
+            ),
         )
 
     def plan(self, request: SummaryGenerationRequest | None = None) -> dict[str, Any]:
@@ -179,7 +186,13 @@ class BridgeProvider(_BridgeConnection):
     def generate(self, request: SummaryGenerationRequest) -> ProviderResult:
         result = self._generate(self._request(request))
         try:
-            document = SummaryDocument.model_validate(result.data)
+            document: GeneratedSummaryDocument
+            if self.profile.name == "conversation-ja":
+                document = ConversationDocument.model_validate(result.data)
+                if validate_conversation_document(document, sources=request_sources(request)):
+                    raise ValueError("invalid conversation evidence")
+            else:
+                document = SummaryDocument.model_validate(result.data)
         except ValueError:
             # Pydantic errors can include response values; suppress the unsafe cause.
             raise self._invalid_output(result) from None

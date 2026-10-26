@@ -27,6 +27,7 @@ class DocumentSource(StrictModel):
 class SummaryRequest(StrictModel):
     source: DocumentSource
     prompt_envelope_version: str
+    conversation_date: str | None = None
 
 
 class SeriesSource(StrictModel):
@@ -42,6 +43,7 @@ class DocumentSourceSet(StrictModel):
     published: str | None = None
     sources: list[SeriesSource] = Field(min_length=2)
     source_set_sha256: str
+    conversation_date: str | None = None
 
 
 class SeriesSummaryRequest(StrictModel):
@@ -146,6 +148,47 @@ class SummaryDocument(StrictModel):
         ),
     )
     conclusion: str = Field(min_length=1)
+
+
+class ConversationEvidence(StrictModel):
+    source_id: str = Field(pattern=r"^S[1-9][0-9]*$")
+    start: str | None = Field(pattern=r"^[0-9]{2,}:[0-5][0-9]:[0-5][0-9]$")
+    end: str | None = Field(pattern=r"^[0-9]{2,}:[0-5][0-9]:[0-5][0-9]$")
+    speaker_label: str | None = Field(min_length=1, pattern=r"^[^\[\]\r\n]+$")
+
+
+class ConversationItem(StrictModel):
+    text: str = Field(min_length=1)
+    kind: Literal["statement", "hearsay", "joke", "speculation", "wish", "plan", "commitment"]
+    subject: str = Field(min_length=1, description="Who or what the statement concerns")
+    speaker_name: str | None = Field(min_length=1)
+    identity_status: Literal["unknown", "inferred", "confirmed"]
+    identity_basis: str = Field(min_length=1)
+    uncertainty: str = Field(min_length=1)
+    evidence: list[ConversationEvidence] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def check_identity(self) -> Self:
+        if (self.identity_status == "unknown") != (self.speaker_name is None):
+            raise ValueError("unknown identity requires null name; named identities need a status")
+        return self
+
+
+class ConversationTopic(StrictModel):
+    heading: str = Field(min_length=1)
+    items: list[ConversationItem] = Field(min_length=1)
+
+
+class ConversationDocument(StrictModel):
+    title: str = Field(min_length=1)
+    summary: str = Field(min_length=1, description="Short overview of topics, without analysis")
+    topics: list[ConversationTopic] = Field(min_length=1)
+    plans: list[ConversationItem]
+    unconfirmed: list[ConversationItem]
+    limitations: list[str] = Field(min_length=1)
+
+
+GeneratedSummaryDocument = SummaryDocument | ConversationDocument
 
 
 class SummaryResult(StrictModel):

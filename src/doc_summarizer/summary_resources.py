@@ -31,6 +31,9 @@ REQUIRED_TEMPLATE_FIELDS = frozenset(
         "conclusion",
     }
 )
+CONVERSATION_TEMPLATE_FIELDS = frozenset(
+    {"frontmatter", "title", "cover", "meeting", "summary", "topics", "plans", "unconfirmed"}
+)
 _PROFILE_NAME = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 _PLACEHOLDER = re.compile(r"\{\{([a-z][a-z0-9_]*)\}\}")
 
@@ -52,7 +55,7 @@ class SummaryTemplate:
     source: str
     sha256: str
     required_headings: tuple[str, ...]
-    technical_terms_heading: str
+    technical_terms_heading: str | None
 
 
 @dataclass(frozen=True)
@@ -176,10 +179,15 @@ def load_summary_template(
         raise RuntimeError(f"summary template version must be a non-empty quoted string: {source}")
     body = text[end + 5 :].strip()
     placeholders = _PLACEHOLDER.findall(body)
-    if set(placeholders) != REQUIRED_TEMPLATE_FIELDS or any(
-        placeholders.count(field) != 1 for field in REQUIRED_TEMPLATE_FIELDS
+    expected_fields = (
+        CONVERSATION_TEMPLATE_FIELDS
+        if profile_name == "conversation-ja"
+        else REQUIRED_TEMPLATE_FIELDS
+    )
+    if set(placeholders) != expected_fields or any(
+        placeholders.count(field) != 1 for field in expected_fields
     ):
-        expected = ", ".join(sorted(REQUIRED_TEMPLATE_FIELDS))
+        expected = ", ".join(sorted(expected_fields))
         raise RuntimeError(
             "summary template must contain each required placeholder exactly once "
             f"({expected}): {source}"
@@ -196,7 +204,10 @@ def load_summary_template(
             f"summary template requiredHeadings must match its five sections: {source}"
         )
     terms_heading = metadata.get("technicalTermsHeading")
-    if not isinstance(terms_heading, str) or terms_heading not in headings:
+    if profile_name == "conversation-ja":
+        if terms_heading is not None:
+            raise RuntimeError(f"conversation template must not require technical terms: {source}")
+    elif not isinstance(terms_heading, str) or terms_heading not in headings:
         raise RuntimeError(f"summary template technicalTermsHeading must name a section: {source}")
     return SummaryTemplate(
         template_id=template_id,
@@ -239,9 +250,10 @@ def load_summary_profile(
 
 
 def render_summary_template(template: SummaryTemplate, values: dict[str, str]) -> str:
-    if set(values) != REQUIRED_TEMPLATE_FIELDS:
-        missing = sorted(REQUIRED_TEMPLATE_FIELDS - set(values))
-        extra = sorted(set(values) - REQUIRED_TEMPLATE_FIELDS)
+    expected_fields = frozenset(_PLACEHOLDER.findall(template.body))
+    if set(values) != expected_fields:
+        missing = sorted(expected_fields - set(values))
+        extra = sorted(set(values) - expected_fields)
         details = []
         if missing:
             details.append("missing=" + ",".join(missing))

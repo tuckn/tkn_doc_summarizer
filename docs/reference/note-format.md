@@ -8,8 +8,12 @@
 | `synthesize`（既定） | 連続ページ | `"9.0"` | 順序付きの `sources` |
 | `synthesize --mode compare` | 比較 | `"7.0"` | 出典 ID 付きの `sources` |
 | 同上 + `--comparison-profile claims-ja` | 話者の主張整理 | `"7.0"` | 各項目の直接リンクと `sources` |
+| `summarize --summary-profile conversation-ja` | 単一録音の会話記録 | `"10.0"` | `S1` と元ファイル内時刻・話者ラベル |
+| `synthesize --summary-profile conversation-ja` | 複数録音を統合した会話記録 | `"11.0"` | 順序付きの `sources` と元ファイル内時刻・話者ラベル |
 
-版番号は数値ではなく文字列です。`validate` は旧形式の `schemaVersion` 2.0〜9.0 も各版の規則で検証します。
+版番号は数値ではなく文字列です。`validate` は `schemaVersion` 2.0〜11.0 を各版の規則で検証します。
+
+会話記録の Frontmatter は単一文書／連続ページの項目に加え、`cliptool` の直後に `conversationDate`（明示した `YYYY-MM-DD` の文字列または `null`）を持ちます。`summaryProfile: conversation-ja`、`promptEnvelopeVersion: conversation-summary-envelope-v1` を使い、`description` は短い概要から作ります。`sourceSetPublished` は元資料の記録日時で、会話日とは別です。本文・証拠の JSON の型・検証範囲は [会話記録のガイド](../guides/conversations.md) を参照してください。
 
 ## Frontmatter の例
 
