@@ -19,6 +19,8 @@ from doc_summarizer.notes import (
     COMPARISON_SUMMARY_SCHEMA_VERSION,
     CONVERSATION_SCHEMA_VERSION,
     CONVERSATION_SERIES_SCHEMA_VERSION,
+    MEETING_MINUTES_SCHEMA_VERSION,
+    MEETING_MINUTES_SERIES_SCHEMA_VERSION,
     REVIEW_STATUSES,
     SERIES_SUMMARY_SCHEMA_VERSION,
     SUMMARY_SCHEMA_VERSION,
@@ -93,14 +95,22 @@ PROFILED_SUMMARY_SCHEMA_VERSIONS = (
     "5.0",
     SUMMARY_SCHEMA_VERSION,
     CONVERSATION_SCHEMA_VERSION,
+    MEETING_MINUTES_SCHEMA_VERSION,
 )
-SERIES_SCHEMA_VERSIONS = ("6.0", SERIES_SUMMARY_SCHEMA_VERSION, CONVERSATION_SERIES_SCHEMA_VERSION)
+SERIES_SCHEMA_VERSIONS = (
+    "6.0", SERIES_SUMMARY_SCHEMA_VERSION, CONVERSATION_SERIES_SCHEMA_VERSION,
+    MEETING_MINUTES_SERIES_SCHEMA_VERSION,
+)
 MULTI_SOURCE_SCHEMA_VERSIONS = (*SERIES_SCHEMA_VERSIONS, COMPARISON_SUMMARY_SCHEMA_VERSION)
 CONVERSATION_SCHEMA_VERSIONS = (CONVERSATION_SCHEMA_VERSION, CONVERSATION_SERIES_SCHEMA_VERSION)
+MEETING_MINUTES_SCHEMA_VERSIONS = (
+    MEETING_MINUTES_SCHEMA_VERSION, MEETING_MINUTES_SERIES_SCHEMA_VERSION,
+)
+MEETING_SCHEMA_VERSIONS = (*CONVERSATION_SCHEMA_VERSIONS, *MEETING_MINUTES_SCHEMA_VERSIONS)
 REFINED_SCHEMA_VERSIONS = (
     SUMMARY_SCHEMA_VERSION,
     SERIES_SUMMARY_SCHEMA_VERSION,
-    *CONVERSATION_SCHEMA_VERSIONS,
+    *MEETING_SCHEMA_VERSIONS,
 )
 SUPPORTED_SUMMARY_SCHEMA_VERSIONS = (
     "2.0",
@@ -248,11 +258,19 @@ def validate_summary_text(text: str, *, verify_source: bool = True) -> list[str]
             "outputSchemaVersion",
             *expected_order[schema_index:],
         ]
-    if schema_version in CONVERSATION_SCHEMA_VERSIONS:
+    if "contextSha256" in metadata:
+        index = expected_order.index("promptEnvelopeVersion")
+        expected_order = [*expected_order[:index], "contextSha256", *expected_order[index:]]
+    if schema_version in MEETING_SCHEMA_VERSIONS:
         index = expected_order.index("cliptool") + 1
         expected_order = [*expected_order[:index], "conversationDate", *expected_order[index:]]
-        if metadata.get("summaryProfile") != "conversation-ja":
-            errors.append("conversation schema requires summaryProfile conversation-ja")
+        expected_profile = (
+            "meeting-minutes-ja"
+            if schema_version in MEETING_MINUTES_SCHEMA_VERSIONS
+            else "conversation-ja"
+        )
+        if metadata.get("summaryProfile") != expected_profile:
+            errors.append(f"meeting schema requires summaryProfile {expected_profile}")
         try:
             date_value = metadata.get("conversationDate")
             if date_value is not None and not isinstance(date_value, str):
@@ -260,8 +278,8 @@ def validate_summary_text(text: str, *, verify_source: bool = True) -> list[str]
             validate_conversation_date(date_value)
         except ValueError as exc:
             errors.append(str(exc))
-    elif metadata.get("summaryProfile") == "conversation-ja":
-        errors.append("conversation-ja requires a conversation schema version")
+    elif metadata.get("summaryProfile") in ("conversation-ja", "meeting-minutes-ja"):
+        errors.append("meeting profile requires its meeting schema version")
     # Accept historical notes while all new output uses created.
     created_key = "created" if "created" in metadata else "date"
     expected_order = [created_key if key == "created" else key for key in expected_order]
@@ -320,6 +338,8 @@ def validate_summary_text(text: str, *, verify_source: bool = True) -> list[str]
         ):
             errors.append("outputSchemaVersion must be a non-empty quoted string")
     digest_keys = ["promptSha256"]
+    if "contextSha256" in metadata:
+        digest_keys.append("contextSha256")
     digest_keys.append(
         "sourceSetSha256" if schema_version in MULTI_SOURCE_SCHEMA_VERSIONS else "sourceSha256"
     )
@@ -382,7 +402,7 @@ def validate_summary_text(text: str, *, verify_source: bool = True) -> list[str]
                 errors.append(str(exc))
     if (
         schema_version in REFINED_SCHEMA_VERSIONS
-        and schema_version not in CONVERSATION_SCHEMA_VERSIONS
+        and schema_version not in MEETING_SCHEMA_VERSIONS
     ):
         terms_heading = load_summary_template(
             _template_profile_for_validation(metadata)
@@ -397,7 +417,10 @@ def validate_summary_text(text: str, *, verify_source: bool = True) -> list[str]
     except ValueError:
         terms_section = ""
     terms = [line[2:].strip() for line in terms_section.splitlines() if line.startswith("- ")]
-    if schema_version in CONVERSATION_SCHEMA_VERSIONS:
+    if schema_version in MEETING_MINUTES_SCHEMA_VERSIONS:
+        terms = []
+        errors.extend(_validate_meeting_minutes_body(metadata, body, headings))
+    elif schema_version in CONVERSATION_SCHEMA_VERSIONS:
         terms = []
         errors.extend(
             _validate_conversation_body(metadata, body, headings, verify_source=verify_source)
@@ -454,6 +477,46 @@ def validate_summary_text(text: str, *, verify_source: bool = True) -> list[str]
                 errors.append("sourceSha256 does not match the referenced source file")
         except (OSError, ValueError) as exc:
             errors.append(f"cannot validate source reference: {exc}")
+    return errors
+
+
+def _validate_meeting_minutes_body(
+    metadata: dict[str, object], body: str, headings: tuple[str, ...]
+) -> list[str]:
+    errors: list[str] = []
+    try:
+        summary = _section(body, headings[0], headings[1])
+        facts = _section(body, headings[1], headings[2])
+        raid = _section(body, headings[3], headings[4])
+    except ValueError:
+        return errors
+    if not summary.startswith("- "):
+        errors.append("meeting overview must start with an executive bullet summary")
+    if re.search(r"【(?:ユーザー補足|解釈)・", facts):
+        errors.append("meeting facts must not include context-only claims or interpretation")
+    if "| ID | 区分 | 内容・根拠 | オーナー | 期限 | 状態 |" not in raid:
+        errors.append("meeting RAID must include owners, deadlines, and status columns")
+    for row in raid.splitlines():
+        if not re.match(r"^\| [RAID][1-9][0-9]* \|", row):
+            continue
+        cells = [cell.strip() for cell in row.strip("|").split("|")]
+        if len(cells) != 6 or any(not cell for cell in cells):
+            errors.append("meeting RAID rows must contain six non-empty cells")
+        elif cells[1] not in ("Risk", "Action", "Issue", "Decision"):
+            errors.append("meeting RAID category is invalid")
+    raw_sources = metadata.get("sources")
+    source_ids = (
+        {str(entry.get("id")) for entry in raw_sources if isinstance(entry, dict)}
+        if isinstance(raw_sources, list)
+        else {"S1"}
+    )
+    cited_ids = set(re.findall(r"\[(S[1-9][0-9]*)\]\(", body))
+    if cited_ids - source_ids or source_ids - cited_ids:
+        errors.append("meeting citations must reference all and only supplied source ids")
+    if "【ユーザー補足・" in body and not metadata.get("contextSha256"):
+        errors.append("user context attribution requires contextSha256")
+    if metadata.get("promptEnvelopeVersion") != "meeting-minutes-envelope-v1":
+        errors.append("meeting minutes require the meeting-minutes prompt envelope")
     return errors
 
 

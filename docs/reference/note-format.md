@@ -10,10 +10,16 @@
 | 同上 + `--comparison-profile claims-ja` | 話者の主張整理 | `"7.0"` | 各項目の直接リンクと `sources` |
 | `summarize --summary-profile conversation-ja` | 単一録音の会話記録 | `"10.0"` | `S1` と元ファイル内時刻・話者ラベル |
 | `synthesize --summary-profile conversation-ja` | 複数録音を統合した会話記録 | `"11.0"` | 順序付きの `sources` と元ファイル内時刻・話者ラベル |
+| `summarize --summary-profile meeting-minutes-ja` | 会議後の議事メモ | `"12.0"` | `S1` の発言・資料記載と補足・解釈の区別 |
+| `synthesize --summary-profile meeting-minutes-ja` | 複数入力を統合した議事メモ | `"13.0"` | 順序付きの `sources` と各項目の S番号 |
 
-版番号は数値ではなく文字列です。`validate` は `schemaVersion` 2.0〜11.0 を各版の規則で検証します。
+版番号は数値ではなく文字列です。`validate` は `schemaVersion` 2.0〜13.0 を各版の規則で検証します。
 
 会話記録の Frontmatter は単一文書／連続ページの項目に加え、`cliptool` の直後に `conversationDate`（明示した `YYYY-MM-DD` の文字列または `null`）を持ちます。`summaryProfile: conversation-ja`、`promptEnvelopeVersion: conversation-summary-envelope-v1` を使い、`description` は短い概要から作ります。`sourceSetPublished` は元資料の記録日時で、会話日とは別です。本文・証拠の JSON の型・検証範囲は [会話記録のガイド](../guides/conversations.md) を参照してください。
+
+議事メモも同じ位置に `conversationDate` を持ち、`summaryProfile: meeting-minutes-ja`、`promptEnvelopeVersion: meeting-minutes-envelope-v1` を使います。`description` は概要の箇条書きから作り、単一入力でも生成された会議タイトルを本文・Frontmatter に使います。
+
+どの形式も context を指定した実行では、`promptEnvelopeVersion` の直前に `contextSha256` を追加します。値は正規化・結合後の補足テキストの SHA-256 です。context なしの既存ノートにこの項目は不要で、従来どおり検証・再利用できます。検証ではハッシュの形式のみ確認し、保存していない補足本文との照合は再実行時に行います。
 
 ## Frontmatter の例
 
@@ -86,6 +92,7 @@ sources:
 | `outputSchemaSha256` | ○ | ○ | 生成 JSON スキーマの内容ハッシュ |
 | `templateId`, `templateVersion`, `templateSha256` | ○ | ○ | Markdown テンプレートの識別・版・内容ハッシュ |
 | `promptEnvelopeVersion` | ○ | ○ | 入力を生成指示へ渡す際の包み方の版 |
+| `contextSha256` | 任意 | 任意 | context 指定時のみ。正規化・結合後の補足テキストのハッシュ |
 | `reviewStatus` | ○ | ○ | 人による確認状態。生成直後は `unreviewed` |
 | `created`, `updated`, `noteId` | ○ | ○ | 作成日時、更新日時、ノート UUID |
 
@@ -100,6 +107,9 @@ sources:
 | 単一・連続 | 要約 → 結論 → 要点 → 構造（抽象から具体へ）→ 専門用語 |
 | 比較 | 比較要約 → 共通概念 → 観点別の捉え方 → 相違・対立 → 各ソース固有の知見 → 専門用語 → 結論 |
 | 主張整理（claims-ja） | 主張の全体像 → 繰り返される主張 → 論点別の主張と論拠 → 主張間の違い・留保 → 個別動画に固有の主張 → 用語 → 整理の結論 → 参照した要約ノート |
+| 議事メモ（meeting-minutes-ja） | 概要 → 会話で確認できた事実 → 認識差・未決事項 → RAID（Risk / Action / Issue / Decision）→ 次回確認事項 |
+
+議事メモの概要は箇条書きです。各項目に `【発言・暫定】`、`【資料記載・確定】`、`【ユーザー補足・要確認】`、`【解釈・要確認】` 等の根拠種別・確度と、根拠がある入力への `[S1](...)` リンクを付けます。補足だけの項目には S番号を付けず、事実の節へ混ぜません。RAID は ID・区分・内容／根拠・オーナー・期限・状態の表です。不明な担当・期限は要確認として残します。
 
 `claims-ja` では `summaryProfile: claims-ja` を記録します。各項目の `[S1](...)` は元の要約ノートを直接開くリンクです。末尾の出典一覧には全入力のタイトルと、入力FrontmatterにあるreviewStatusを表示します。同じドライブではノート間の相対パス、異なるドライブではfile URIを使います。Frontmatterの出典パスは通常の `source_path_format` に従います。
 

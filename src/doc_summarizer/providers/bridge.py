@@ -21,11 +21,13 @@ from tkn_genai_bridge.models import PROVIDER_NAMES
 from doc_summarizer.comparison_resources import load_comparison_profile
 from doc_summarizer.config import DEFAULT_SUMMARY_PROFILE
 from doc_summarizer.conversation import request_sources, validate_conversation_document
+from doc_summarizer.meeting_minutes import validate_meeting_minutes_document
 from doc_summarizer.models import (
     ComparisonDocument,
     ComparisonRequest,
     ConversationDocument,
     GeneratedSummaryDocument,
+    MeetingMinutesDocument,
     SummaryDocument,
     SummaryGenerationRequest,
 )
@@ -174,7 +176,9 @@ class BridgeProvider(_BridgeConnection):
             else self.prompt.instructions,
             output_schema=self.profile.schema.value,
             schema_name=(
-                "conversation_record"
+                "meeting_minutes"
+                if self.profile.name == "meeting-minutes-ja"
+                else "conversation_record"
                 if self.profile.name == "conversation-ja"
                 else "document_summary"
             ),
@@ -191,6 +195,14 @@ class BridgeProvider(_BridgeConnection):
                 document = ConversationDocument.model_validate(result.data)
                 if validate_conversation_document(document, sources=request_sources(request)):
                     raise ValueError("invalid conversation evidence")
+            elif self.profile.name == "meeting-minutes-ja":
+                document = MeetingMinutesDocument.model_validate(result.data)
+                if validate_meeting_minutes_document(
+                    document,
+                    source_ids=set(request_sources(request)),
+                    has_context=request.context is not None,
+                ):
+                    raise ValueError("invalid meeting minutes attribution")
             else:
                 document = SummaryDocument.model_validate(result.data)
         except ValueError:

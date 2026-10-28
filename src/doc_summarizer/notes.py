@@ -19,6 +19,8 @@ from doc_summarizer.models import (
     DocumentSource,
     DocumentSourceSet,
     GeneratedSummaryDocument,
+    MeetingMinutesDocument,
+    MeetingPoint,
 )
 from doc_summarizer.source import split_frontmatter
 from doc_summarizer.summary_resources import SummaryProfile, render_summary_template
@@ -29,6 +31,8 @@ SERIES_SUMMARY_SCHEMA_VERSION = "9.0"
 COMPARISON_SUMMARY_SCHEMA_VERSION = "7.0"
 CONVERSATION_SCHEMA_VERSION = "10.0"
 CONVERSATION_SERIES_SCHEMA_VERSION = "11.0"
+MEETING_MINUTES_SCHEMA_VERSION = "12.0"
+MEETING_MINUTES_SERIES_SCHEMA_VERSION = "13.0"
 DESCRIPTION_MAX_CHARS = 240
 REVIEW_STATUSES = (
     "unreviewed",
@@ -127,6 +131,7 @@ def render_summary(
     note_id: str | None = None,
     created_at: str | datetime | None = None,
     conversation_date: str | None = None,
+    context_sha256: str | None = None,
 ) -> str:
     created = created_at or now
     source_uri = path_to_file_uri(source.path)
@@ -134,25 +139,30 @@ def render_summary(
     prompt = profile.prompt
     template = profile.template
     schema_version = (
-        CONVERSATION_SCHEMA_VERSION
+        MEETING_MINUTES_SCHEMA_VERSION
+        if isinstance(document, MeetingMinutesDocument)
+        else CONVERSATION_SCHEMA_VERSION
         if isinstance(document, ConversationDocument)
         else SUMMARY_SCHEMA_VERSION
     )
     description = (
-        document.summary if isinstance(document, ConversationDocument) else document.conclusion
+        " ".join(point.text for point in document.summary)
+        if isinstance(document, MeetingMinutesDocument)
+        else document.summary if isinstance(document, ConversationDocument) else document.conclusion
     )
+    title = document.title if isinstance(document, MeetingMinutesDocument) else source.title
     frontmatter_lines = [
         "---",
         "type: summary",
         f"schemaVersion: {yaml_quote(schema_version)}",
-        f"title: {yaml_quote(source.title)}",
+        f"title: {yaml_quote(title)}",
         f"description: {yaml_quote(compact_description(description))}",
         f"cover: {yaml_optional(source.cover)}",
         f"url: {yaml_quote(canonical_reference)}",
         "cliptool: Codex",
         *(
             [f"conversationDate: {yaml_optional(conversation_date)}"]
-            if isinstance(document, ConversationDocument)
+            if isinstance(document, ConversationDocument | MeetingMinutesDocument)
             else []
         ),
         f"source: {yaml_source_reference(source.path, source_path_format)}",
@@ -169,6 +179,7 @@ def render_summary(
         f"templateId: {template.template_id}",
         f"templateVersion: {yaml_quote(template.version)}",
         f"templateSha256: {template.sha256}",
+        *([f"contextSha256: {context_sha256}"] if context_sha256 is not None else []),
         f"promptEnvelopeVersion: {yaml_quote(prompt_envelope_version)}",
         "reviewStatus: unreviewed",
         f"created: {yaml_quote(frontmatter_timestamp(created))}",
@@ -178,7 +189,7 @@ def render_summary(
     ]
     return _render_summary_body(
         frontmatter_lines=frontmatter_lines,
-        title=source.title,
+        title=title,
         cover=source.cover,
         document=document,
         profile=profile,
@@ -197,6 +208,16 @@ def _render_summary_body(
     sources: dict[str, DocumentSource],
     conversation_date: str | None,
 ) -> str:
+    if isinstance(document, MeetingMinutesDocument):
+        return _render_meeting_minutes_body(
+            frontmatter_lines=frontmatter_lines,
+            title=title,
+            cover=cover,
+            document=document,
+            profile=profile,
+            sources=sources,
+            conversation_date=conversation_date,
+        )
     if isinstance(document, ConversationDocument):
         return _render_conversation_body(
             frontmatter_lines=frontmatter_lines,
@@ -248,6 +269,7 @@ def render_series_summary(
     source_path_format: SourcePathFormat,
     note_id: str | None = None,
     created_at: str | datetime | None = None,
+    context_sha256: str | None = None,
 ) -> str:
     created = created_at or now
     first_source = source_set.sources[0].document
@@ -255,12 +277,16 @@ def render_series_summary(
     prompt = profile.prompt
     template = profile.template
     schema_version = (
-        CONVERSATION_SERIES_SCHEMA_VERSION
+        MEETING_MINUTES_SERIES_SCHEMA_VERSION
+        if isinstance(document, MeetingMinutesDocument)
+        else CONVERSATION_SERIES_SCHEMA_VERSION
         if isinstance(document, ConversationDocument)
         else SERIES_SUMMARY_SCHEMA_VERSION
     )
     description = (
-        document.summary if isinstance(document, ConversationDocument) else document.conclusion
+        " ".join(point.text for point in document.summary)
+        if isinstance(document, MeetingMinutesDocument)
+        else document.summary if isinstance(document, ConversationDocument) else document.conclusion
     )
     frontmatter_lines = [
         "---",
@@ -273,7 +299,7 @@ def render_series_summary(
         "cliptool: Codex",
         *(
             [f"conversationDate: {yaml_optional(source_set.conversation_date)}"]
-            if isinstance(document, ConversationDocument)
+            if isinstance(document, ConversationDocument | MeetingMinutesDocument)
             else []
         ),
         "synthesisMode: series",
@@ -305,6 +331,7 @@ def render_series_summary(
             f"templateId: {template.template_id}",
             f"templateVersion: {yaml_quote(template.version)}",
             f"templateSha256: {template.sha256}",
+            *([f"contextSha256: {context_sha256}"] if context_sha256 is not None else []),
             f"promptEnvelopeVersion: {yaml_quote(prompt_envelope_version)}",
             "reviewStatus: unreviewed",
             f"created: {yaml_quote(frontmatter_timestamp(created))}",
@@ -321,6 +348,92 @@ def render_series_summary(
         profile=profile,
         sources={entry.id: entry.document for entry in source_set.sources},
         conversation_date=source_set.conversation_date,
+    )
+
+
+def _render_meeting_minutes_body(
+    *,
+    frontmatter_lines: list[str],
+    title: str,
+    cover: str | None,
+    document: MeetingMinutesDocument,
+    profile: SummaryProfile,
+    sources: dict[str, DocumentSource],
+    conversation_date: str | None,
+) -> str:
+    bases = {
+        "statement": "発言",
+        "document": "資料記載",
+        "context": "ユーザー補足",
+        "interpretation": "解釈",
+    }
+    certainties = {
+        "confirmed": "確定",
+        "provisional": "暫定",
+        "needs-confirmation": "要確認",
+    }
+
+    def line(value: str) -> str:
+        return " ".join(value.split()).replace("|", "&#124;")
+
+    def point_text(point: MeetingPoint) -> str:
+        citations = " ".join(
+            f"[{source_id}]({path_to_file_uri(sources[source_id].path)})"
+            for source_id in point.source_ids
+        )
+        return (
+            f"【{bases[point.basis]}・{certainties[point.certainty]}】"
+            f"{line(point.text)} {citations}"
+        ).rstrip()
+
+    counters = dict.fromkeys(("Risk", "Action", "Issue", "Decision"), 0)
+    rows = [
+        "| ID | 区分 | 内容・根拠 | オーナー | 期限 | 状態 |",
+        "| --- | --- | --- | --- | --- | --- |",
+    ]
+    for item in document.raid:
+        counters[item.category] += 1
+        item_id = f"{item.category[0]}{counters[item.category]}"
+        rows.append(
+            f"| {item_id} | {item.category} | {point_text(item)} | {line(item.owner)} | "
+            f"{line(item.deadline)} | {line(item.status)} |"
+        )
+    meeting_info = (
+        f"**会議情報**：会話日: {conversation_date or '未確認'}。"
+        "話者ラベルは参考情報であり、実名・人数を確定するものではありません。\n\n"
+        "**根拠の扱い**：発言・資料記載・ユーザー補足・解釈を各項目で区別します。"
+        "「確定」は独立した外部事実の検証済みを意味しません。\n\n"
+        "**出典**："
+        + " / ".join(
+            f"[{source_id} · {_markdown_label(source.title)}]({path_to_file_uri(source.path)})"
+            for source_id, source in sources.items()
+        )
+        + "\n\n**読み取り上の制約**：\n\n"
+        + "\n".join(f"- {line(value)}" for value in document.limitations)
+    )
+    return render_summary_template(
+        profile.template,
+        {
+            "frontmatter": "\n".join(frontmatter_lines),
+            "title": title,
+            "cover": f"![]({cover})\n\n" if cover else "",
+            "summary": "\n".join(f"- {point_text(point)}" for point in document.summary)
+            + "\n\n" + meeting_info,
+            "facts": "\n\n".join(
+                f"### {line(topic.heading)}\n\n"
+                + "\n".join(f"- {point_text(point)}" for point in topic.items)
+                for topic in document.facts
+            ) or "会話で確認できた事実は抽出されていません。",
+            "open_questions": "\n".join(
+                f"- {point_text(point)}" for point in document.open_questions
+            ) or "認識差・未決事項は抽出されていません。",
+            "raid": "\n".join(rows)
+            + ("" if document.raid else "\n\nRAID に該当する項目は抽出されていません。"),
+            "next_checks": "\n".join(
+                f"{index}. {point_text(point)}"
+                for index, point in enumerate(document.next_checks, start=1)
+            ) or "次回確認事項は抽出されていません。",
+        },
     )
 
 
@@ -430,6 +543,7 @@ def render_comparison_summary(
     output_path: Path | None = None,
     note_id: str | None = None,
     created_at: str | datetime | None = None,
+    context_sha256: str | None = None,
 ) -> str:
     created = created_at or now
     first_source = source_set.sources[0].document
@@ -472,6 +586,7 @@ def render_comparison_summary(
             f"templateId: {template.template_id}",
             f"templateVersion: {yaml_quote(template.version)}",
             f"templateSha256: {template.sha256}",
+            *([f"contextSha256: {context_sha256}"] if context_sha256 is not None else []),
             f"promptEnvelopeVersion: {yaml_quote(prompt_envelope_version)}",
             "reviewStatus: unreviewed",
             f"created: {yaml_quote(frontmatter_timestamp(created))}",

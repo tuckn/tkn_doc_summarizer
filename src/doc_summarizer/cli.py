@@ -105,6 +105,18 @@ def _configure_logging(args: argparse.Namespace) -> None:
     logging.basicConfig(level=level, handlers=[handler], force=True)
 
 
+def _context_options(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--context",
+        help="supplementary context text for this run, separate from source evidence",
+    )
+    parser.add_argument(
+        "--context-file",
+        type=Path,
+        help="UTF-8 supplementary context file; combined with --context if both are given",
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="tkn-doc-summarizer",
@@ -141,8 +153,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     summary_parser.add_argument(
         "--conversation-date",
-        help="conversation-ja meeting date, YYYY-MM-DD; unknown if omitted",
+        help="conversation-ja or meeting-minutes-ja meeting date, YYYY-MM-DD; unknown if omitted",
     )
+    _context_options(summary_parser)
     _common(summary_parser)
 
     synthesize_parser = commands.add_parser(
@@ -196,9 +209,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="resolve the ordered sources and target without AI execution or writes",
     )
     _common(synthesize_parser)
+    _context_options(synthesize_parser)
     synthesize_parser.add_argument(
         "--conversation-date",
-        help="conversation-ja meeting date, YYYY-MM-DD; unknown if omitted",
+        help="conversation-ja or meeting-minutes-ja meeting date, YYYY-MM-DD; unknown if omitted",
     )
 
     validate_parser = commands.add_parser("validate", help="validate a generated summary note")
@@ -387,7 +401,7 @@ def main(argv: list[str] | None = None) -> int:
             profile = load_summary_profile(config.summary_profile, prompt=prompt)
             comparison_profile = load_comparison_profile(
                 "default-ja"
-                if config.summary_profile == "conversation-ja"
+                if config.summary_profile in ("conversation-ja", "meeting-minutes-ja")
                 else config.summary_profile
             )
             values = public_config(config)
@@ -461,6 +475,8 @@ def main(argv: list[str] | None = None) -> int:
                 overwrite=args.overwrite,
                 dry_run=args.dry_run,
                 conversation_date=args.conversation_date,
+                context=args.context,
+                context_file=args.context_file,
             )
             if result.status == "planned":
                 logger.info("Dry run completed without writes")
@@ -492,6 +508,7 @@ def main(argv: list[str] | None = None) -> int:
                     overwrite=args.overwrite, dry_run=args.dry_run,
                     comparison_profile=args.comparison_profile,
                     extend_sources=args.extend_sources,
+                    context=args.context, context_file=args.context_file,
                 )
             else:
                 result = synthesize_series(
@@ -502,6 +519,8 @@ def main(argv: list[str] | None = None) -> int:
                     overwrite=args.overwrite,
                     dry_run=args.dry_run,
                     conversation_date=args.conversation_date,
+                    context=args.context,
+                    context_file=args.context_file,
                 )
             if result.status == "planned":
                 logger.info("Dry run completed without writes")

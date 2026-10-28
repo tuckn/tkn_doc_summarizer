@@ -28,6 +28,7 @@ class SummaryRequest(StrictModel):
     source: DocumentSource
     prompt_envelope_version: str
     conversation_date: str | None = None
+    context: str | None = None
 
 
 class SeriesSource(StrictModel):
@@ -49,6 +50,7 @@ class DocumentSourceSet(StrictModel):
 class SeriesSummaryRequest(StrictModel):
     source_set: DocumentSourceSet
     prompt_envelope_version: str
+    context: str | None = None
 
 
 SummaryGenerationRequest = SummaryRequest | SeriesSummaryRequest
@@ -57,6 +59,7 @@ SummaryGenerationRequest = SummaryRequest | SeriesSummaryRequest
 class ComparisonRequest(StrictModel):
     source_set: DocumentSourceSet
     prompt_envelope_version: str
+    context: str | None = None
 
 
 class ComparisonPoint(StrictModel):
@@ -188,7 +191,36 @@ class ConversationDocument(StrictModel):
     limitations: list[str] = Field(min_length=1)
 
 
-GeneratedSummaryDocument = SummaryDocument | ConversationDocument
+class MeetingPoint(StrictModel):
+    text: str = Field(min_length=1)
+    basis: Literal["statement", "document", "context", "interpretation"]
+    certainty: Literal["confirmed", "provisional", "needs-confirmation"]
+    source_ids: list[str]
+
+
+class MeetingTopic(StrictModel):
+    heading: str = Field(min_length=1)
+    items: list[MeetingPoint] = Field(min_length=1)
+
+
+class RaidItem(MeetingPoint):
+    category: Literal["Risk", "Action", "Issue", "Decision"]
+    owner: str = Field(min_length=1)
+    deadline: str = Field(min_length=1)
+    status: str = Field(min_length=1)
+
+
+class MeetingMinutesDocument(StrictModel):
+    title: str = Field(min_length=1)
+    summary: list[MeetingPoint] = Field(min_length=1)
+    facts: list[MeetingTopic]
+    open_questions: list[MeetingPoint]
+    raid: list[RaidItem]
+    next_checks: list[MeetingPoint]
+    limitations: list[str] = Field(min_length=1)
+
+
+GeneratedSummaryDocument = SummaryDocument | ConversationDocument | MeetingMinutesDocument
 
 
 class SummaryResult(StrictModel):

@@ -45,6 +45,47 @@ def test_dry_run_outputs_only_json_to_stdout(
     assert not (tmp_path / "output").exists()
 
 
+@pytest.mark.parametrize("mode", ["summary", "series", "compare"])
+def test_cli_accepts_per_run_context_and_context_file(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], mode: str
+) -> None:
+    from doc_summarizer.context import context_sha256
+
+    first, second = tmp_path / "one.md", tmp_path / "two.md"
+    first.write_text("# One\n\nFirst.", encoding="utf-8")
+    second.write_text("# Two\n\nSecond.", encoding="utf-8")
+    context = tmp_path / "background.md"
+    context.write_text("Reference text.", encoding="utf-8")
+    args = (
+        ["summarize", str(first)]
+        if mode == "summary" else ["synthesize", str(first), str(second)]
+    )
+    if mode == "compare":
+        args.extend(["--mode", "compare", "--comparison-profile", "claims-ja"])
+    args.extend([
+        "--context", "Meeting hint.", "--context-file", str(context),
+        "--output-root", str(tmp_path / "out"), "--reports-root", str(tmp_path / "reports"),
+        "--dry-run",
+    ])
+    assert main(args) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["details"]["context_sha256"] == context_sha256("Meeting hint.\n\nReference text.")
+    assert not (tmp_path / "out").exists() and not (tmp_path / "reports").exists()
+
+
+def test_cli_rejects_missing_context_file_without_writes(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    source = tmp_path / "one.md"
+    source.write_text("# One\n\nFirst.", encoding="utf-8")
+    assert main([
+        "summarize", str(source), "--context-file", str(tmp_path / "missing.md"),
+        "--output-root", str(tmp_path / "out"), "--reports-root", str(tmp_path / "reports"),
+    ]) == 1
+    assert "cannot read --context-file" in capsys.readouterr().err
+    assert not (tmp_path / "out").exists() and not (tmp_path / "reports").exists()
+
+
 def test_series_dry_run_outputs_resolved_sources_without_writes(
     tmp_path: Path,
     capsys: object,

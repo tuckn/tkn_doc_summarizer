@@ -10,18 +10,23 @@ from pathlib import Path
 from typing import Any
 
 from doc_summarizer.config import AppConfig, SourcePathFormat
+from doc_summarizer.context import context_sha256, load_context
 from doc_summarizer.conversation import (
     request_sources,
     validate_conversation_date,
     validate_conversation_document,
 )
 from doc_summarizer.io import atomic_write, sha256_bytes
+from doc_summarizer.meeting_minutes import validate_meeting_minutes_document
 from doc_summarizer.models import (
     ComparisonRequest,
     ConversationDocument,
     DocumentSource,
     DocumentSourceSet,
+    GeneratedSummaryDocument,
+    MeetingMinutesDocument,
     SeriesSummaryRequest,
+    SummaryGenerationRequest,
     SummaryRequest,
     SummaryResult,
 )
@@ -37,6 +42,7 @@ from doc_summarizer.notes import (
 from doc_summarizer.prompting import (
     COMPARISON_PROMPT_ENVELOPE_VERSION,
     CONVERSATION_PROMPT_ENVELOPE_VERSION,
+    MEETING_MINUTES_PROMPT_ENVELOPE_VERSION,
     PROMPT_ENVELOPE_VERSION,
     SERIES_PROMPT_ENVELOPE_VERSION,
 )
@@ -56,6 +62,45 @@ from doc_summarizer.validation import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _summary_envelope(profile_name: str, *, series: bool = False) -> str:
+    if profile_name == "meeting-minutes-ja":
+        return MEETING_MINUTES_PROMPT_ENVELOPE_VERSION
+    if profile_name == "conversation-ja":
+        return CONVERSATION_PROMPT_ENVELOPE_VERSION
+    return SERIES_PROMPT_ENVELOPE_VERSION if series else PROMPT_ENVELOPE_VERSION
+
+
+def _validate_generated_summary(
+    document: GeneratedSummaryDocument,
+    profile_name: str,
+    request: SummaryGenerationRequest,
+) -> None:
+    if (
+        isinstance(document, ConversationDocument) != (profile_name == "conversation-ja")
+        or isinstance(document, MeetingMinutesDocument) != (profile_name == "meeting-minutes-ja")
+    ):
+        raise RuntimeError("provider returned a document type that does not match the profile")
+    if isinstance(document, ConversationDocument) and validate_conversation_document(
+        document, sources=request_sources(request)
+    ):
+        raise RuntimeError("generated conversation evidence validation failed")
+    if isinstance(document, MeetingMinutesDocument) and validate_meeting_minutes_document(
+        document,
+        source_ids=set(request_sources(request)),
+        has_context=request.context is not None,
+    ):
+        raise RuntimeError("generated meeting minutes attribution validation failed")
+
+
+def _check_total_context(
+    source_set: DocumentSourceSet, context: str | None, config: AppConfig
+) -> None:
+    total = sum(entry.document.source_size_bytes for entry in source_set.sources)
+    total += len(context.encode("utf-8")) if context else 0
+    if total > config.max_total_input_bytes:
+        raise ValueError("sources and context exceed max_total_input_bytes")
 
 
 def _source_set_with_title(
@@ -82,8 +127,10 @@ def provider_for_config(config: AppConfig) -> SummaryProvider:
 def comparison_provider_for_config(
     config: AppConfig, *, comparison_profile: str | None = None
 ) -> ComparisonProvider:
-    if config.summary_profile == "conversation-ja":
-        raise ValueError("conversation-ja requires summarize or synthesize --mode series")
+    if config.summary_profile in ("conversation-ja", "meeting-minutes-ja"):
+        raise ValueError(
+            f"{config.summary_profile} requires summarize or synthesize --mode series"
+        )
     if config.summary_prompt is not None:
         raise ValueError("--summary-prompt is not supported with --mode compare")
     return BridgeComparisonProvider(
@@ -173,7 +220,7 @@ def _target_path(
         config.output_root,
         source_path=source.path,
         published=conversation_date
-        if provider.profile.name == "conversation-ja"
+        if provider.profile.name in ("conversation-ja", "meeting-minutes-ja")
         else source.published,
         title=source.title,
         profile_name=provider.profile.name,
@@ -215,6 +262,7 @@ def _is_current(
     profile_sha256: str,
     requested_generator: str | None,
     source_path_format: SourcePathFormat,
+    context: str | None = None,
 ) -> bool:
     generator = str(metadata.get("generator") or "")
     model_matches = requested_generator is None or generator == requested_generator
@@ -225,11 +273,8 @@ def _is_current(
         and metadata.get("promptSha256") == prompt_sha256
         and metadata.get("summaryProfileSha256") == profile_sha256
         and metadata.get("promptEnvelopeVersion")
-        == (
-            CONVERSATION_PROMPT_ENVELOPE_VERSION
-            if metadata.get("summaryProfile") == "conversation-ja"
-            else PROMPT_ENVELOPE_VERSION
-        )
+        == _summary_envelope(str(metadata.get("summaryProfile")))
+        and metadata.get("contextSha256") == context_sha256(context)
         and model_matches
     )
 
@@ -279,14 +324,13 @@ def _summarize(
     overwrite: bool,
     dry_run: bool,
     conversation_date: str | None,
+    context: str | None,
 ) -> SummaryResult:
     conversation_date = validate_conversation_date(conversation_date)
-    is_conversation = provider.profile.name == "conversation-ja"
-    if conversation_date is not None and not is_conversation:
-        raise ValueError("--conversation-date requires --summary-profile conversation-ja")
-    envelope_version = (
-        CONVERSATION_PROMPT_ENVELOPE_VERSION if is_conversation else PROMPT_ENVELOPE_VERSION
-    )
+    is_meeting = provider.profile.name in ("conversation-ja", "meeting-minutes-ja")
+    if conversation_date is not None and not is_meeting:
+        raise ValueError("--conversation-date requires conversation-ja or meeting-minutes-ja")
+    envelope_version = _summary_envelope(provider.profile.name)
     source = resolve_source(
         source_value,
         source_roots=config.source_roots,
@@ -316,9 +360,10 @@ def _summarize(
             profile_sha256=profile.sha256,
             requested_generator=_requested_generator(provider, config),
             source_path_format=config.source_path_format,
+            context=context,
         )
         current = current and (
-            not is_conversation or existing_metadata.get("conversationDate") == conversation_date
+            not is_meeting or existing_metadata.get("conversationDate") == conversation_date
         )
         if current and not existing_errors and not overwrite:
             logger.info("Summary note is already current: %s", target)
@@ -335,6 +380,7 @@ def _summarize(
                     "summary_profile": profile.name,
                     "summary_profile_sha256": profile.sha256,
                     "source_path_format": config.source_path_format,
+                    "context_sha256": context_sha256(context),
                     "dry_run": dry_run,
                 },
             )
@@ -342,7 +388,7 @@ def _summarize(
             reason = (
                 "; ".join(existing_errors)
                 if existing_errors
-                else "source, prompt, or explicitly selected model changed"
+                else "source, context, prompt, or explicitly selected model changed"
             )
             raise FileExistsError(
                 f"existing summary requires explicit --overwrite ({reason}): {target}"
@@ -358,6 +404,7 @@ def _summarize(
         source=source,
         prompt_envelope_version=envelope_version,
         conversation_date=conversation_date,
+        context=context,
     )
     if dry_run:
         action = "updated" if target.exists() else "created"
@@ -376,6 +423,7 @@ def _summarize(
                 "summary_profile": profile.name,
                 "summary_profile_sha256": profile.sha256,
                 "source_path_format": config.source_path_format,
+                "context_sha256": context_sha256(context),
                 "dry_run": True,
             },
         )
@@ -388,12 +436,7 @@ def _summarize(
         or generated.prompt_envelope_version != envelope_version
     ):
         raise RuntimeError("provider returned prompt provenance that does not match the request")
-    if isinstance(generated.document, ConversationDocument) != is_conversation:
-        raise RuntimeError("provider returned a document type that does not match the profile")
-    if isinstance(generated.document, ConversationDocument) and validate_conversation_document(
-        generated.document, sources=request_sources(request)
-    ):
-        raise RuntimeError("generated conversation evidence validation failed")
+    _validate_generated_summary(generated.document, profile.name, request)
     now = datetime.now().astimezone()
     note_id = (
         str(existing_metadata.get("noteId"))
@@ -416,6 +459,7 @@ def _summarize(
         note_id=note_id,
         created_at=created_at,
         conversation_date=conversation_date,
+        context_sha256=context_sha256(context),
     )
     errors = validate_summary_text(text)
     if errors:
@@ -445,6 +489,7 @@ def _summarize(
             "summary_profile_source": profile.source,
             "summary_profile_sha256": profile.sha256,
             "source_path_format": config.source_path_format,
+            "context_sha256": context_sha256(context),
             "output_schema_source": profile.schema.source,
             "output_schema_id": profile.schema.resource_id,
             "output_schema_version": profile.schema.version,
@@ -467,7 +512,10 @@ def summarize(
     dry_run: bool = False,
     provider: SummaryProvider | None = None,
     conversation_date: str | None = None,
+    context: str | None = None,
+    context_file: Path | None = None,
 ) -> SummaryResult:
+    context = load_context(context, context_file, max_input_bytes=config.max_input_bytes)
     started_at = datetime.now().astimezone()
     active_provider = provider or provider_for_config(config)
     try:
@@ -479,6 +527,7 @@ def summarize(
             overwrite=overwrite,
             dry_run=dry_run,
             conversation_date=conversation_date,
+            context=context,
         )
     except Exception as exc:
         if dry_run:
@@ -556,7 +605,7 @@ def _series_target_path(
         source_path=source_set.sources[0].document.path,
         published=(
             source_set.conversation_date
-            if provider.profile.name == "conversation-ja"
+            if provider.profile.name in ("conversation-ja", "meeting-minutes-ja")
             else source_set.published
         ),
         title=source_set.title,
@@ -595,6 +644,7 @@ def _is_current_series(
     profile_sha256: str,
     requested_generator: str | None,
     source_path_format: SourcePathFormat,
+    context: str | None = None,
 ) -> bool:
     generator = str(metadata.get("generator") or "")
     model_matches = requested_generator is None or generator == requested_generator
@@ -611,11 +661,8 @@ def _is_current_series(
         and metadata.get("promptSha256") == prompt_sha256
         and metadata.get("summaryProfileSha256") == profile_sha256
         and metadata.get("promptEnvelopeVersion")
-        == (
-            CONVERSATION_PROMPT_ENVELOPE_VERSION
-            if metadata.get("summaryProfile") == "conversation-ja"
-            else SERIES_PROMPT_ENVELOPE_VERSION
-        )
+        == _summary_envelope(str(metadata.get("summaryProfile")), series=True)
+        and metadata.get("contextSha256") == context_sha256(context)
         and model_matches
         and format_matches
     )
@@ -628,13 +675,14 @@ def _series_details(
     dry_run: bool,
     source_path_format: SourcePathFormat,
     generated_title_pending: bool = False,
+    context: str | None = None,
 ) -> dict[str, object]:
     prompt = provider.prompt
     profile = provider.profile
     return {
         **(
             {"conversation_date": source_set.conversation_date}
-            if profile.name == "conversation-ja"
+            if profile.name in ("conversation-ja", "meeting-minutes-ja")
             else {}
         ),
         "validated": not dry_run,
@@ -644,6 +692,7 @@ def _series_details(
         "source_count": len(source_set.sources),
         "source_paths": [str(entry.document.path) for entry in source_set.sources],
         "source_path_format": source_path_format,
+        "context_sha256": context_sha256(context),
         "title": source_set.title,
         "generated_title_pending": generated_title_pending,
         "prompt_id": prompt.prompt_id,
@@ -665,14 +714,13 @@ def _synthesize_series(
     overwrite: bool,
     dry_run: bool,
     conversation_date: str | None,
+    context: str | None,
 ) -> SummaryResult:
     conversation_date = validate_conversation_date(conversation_date)
-    is_conversation = provider.profile.name == "conversation-ja"
-    if conversation_date is not None and not is_conversation:
-        raise ValueError("--conversation-date requires --summary-profile conversation-ja")
-    envelope_version = (
-        CONVERSATION_PROMPT_ENVELOPE_VERSION if is_conversation else SERIES_PROMPT_ENVELOPE_VERSION
-    )
+    is_meeting = provider.profile.name in ("conversation-ja", "meeting-minutes-ja")
+    if conversation_date is not None and not is_meeting:
+        raise ValueError("--conversation-date requires conversation-ja or meeting-minutes-ja")
+    envelope_version = _summary_envelope(provider.profile.name, series=True)
     source_set = resolve_synthesis_sources(
         source_values,
         mode="series",
@@ -681,7 +729,8 @@ def _synthesize_series(
         max_input_bytes=config.max_input_bytes,
         max_total_input_bytes=config.max_total_input_bytes,
     )
-    if is_conversation:
+    _check_total_context(source_set, context, config)
+    if is_meeting:
         source_set = source_set.model_copy(update={"conversation_date": conversation_date})
         source_set = source_set.model_copy(
             update={"source_set_sha256": source_set_sha256(source_set)}
@@ -728,6 +777,7 @@ def _synthesize_series(
             profile_sha256=profile.sha256,
             requested_generator=_requested_generator(provider, config),
             source_path_format=config.source_path_format,
+            context=context,
         )
         if current and not existing_errors and not overwrite:
             logger.info("Series summary note is already current: %s", target)
@@ -740,13 +790,14 @@ def _synthesize_series(
                     provider,
                     dry_run=dry_run,
                     source_path_format=config.source_path_format,
+                    context=context,
                 ),
             )
         if not overwrite:
             reason = (
                 "; ".join(existing_errors)
                 if existing_errors
-                else "source set, prompt, or explicitly selected model changed"
+                else "source set, context, prompt, or explicitly selected model changed"
             )
             raise FileExistsError(
                 f"existing series summary requires explicit --overwrite ({reason}): {target}"
@@ -761,6 +812,7 @@ def _synthesize_series(
     request = SeriesSummaryRequest(
         source_set=source_set,
         prompt_envelope_version=envelope_version,
+        context=context,
     )
     if dry_run:
         action = "updated" if target.exists() else "created"
@@ -771,6 +823,7 @@ def _synthesize_series(
             dry_run=True,
             source_path_format=config.source_path_format,
             generated_title_pending=generated_target_pending,
+            context=context,
         )
         details["planned_status"] = action
         details["bridge_plan"] = provider.plan(request)
@@ -791,12 +844,7 @@ def _synthesize_series(
         or generated.prompt_envelope_version != envelope_version
     ):
         raise RuntimeError("provider returned prompt provenance that does not match the request")
-    if isinstance(generated.document, ConversationDocument) != is_conversation:
-        raise RuntimeError("provider returned a document type that does not match the profile")
-    if isinstance(generated.document, ConversationDocument) and validate_conversation_document(
-        generated.document, sources=request_sources(request)
-    ):
-        raise RuntimeError("generated conversation evidence validation failed")
+    _validate_generated_summary(generated.document, profile.name, request)
     if title is None:
         source_set = _source_set_with_title(source_set, generated.document.title)
         if generated_target_pending:
@@ -827,6 +875,7 @@ def _synthesize_series(
         source_path_format=config.source_path_format,
         note_id=note_id,
         created_at=created_at,
+        context_sha256=context_sha256(context),
     )
     errors = validate_summary_text(text)
     if errors:
@@ -843,6 +892,7 @@ def _synthesize_series(
         provider,
         dry_run=False,
         source_path_format=config.source_path_format,
+        context=context,
     )
     details.update(
         {
@@ -881,7 +931,10 @@ def synthesize_series(
     dry_run: bool = False,
     provider: SummaryProvider | None = None,
     conversation_date: str | None = None,
+    context: str | None = None,
+    context_file: Path | None = None,
 ) -> SummaryResult:
+    context = load_context(context, context_file, max_input_bytes=config.max_input_bytes)
     started_at = datetime.now().astimezone()
     active_provider = provider or provider_for_config(config)
     try:
@@ -894,6 +947,7 @@ def synthesize_series(
             overwrite=overwrite,
             dry_run=dry_run,
             conversation_date=conversation_date,
+            context=context,
         )
     except Exception as exc:
         if dry_run:
@@ -1033,6 +1087,7 @@ def _is_current_comparison(
     profile_sha256: str,
     requested_generator: str | None,
     source_path_format: SourcePathFormat,
+    context: str | None = None,
 ) -> bool:
     generator = str(metadata.get("generator") or "")
     model_matches = requested_generator is None or generator == requested_generator
@@ -1049,6 +1104,7 @@ def _is_current_comparison(
         and metadata.get("promptSha256") == prompt_sha256
         and metadata.get("summaryProfileSha256") == profile_sha256
         and metadata.get("promptEnvelopeVersion") == COMPARISON_PROMPT_ENVELOPE_VERSION
+        and metadata.get("contextSha256") == context_sha256(context)
         and model_matches
         and format_matches
     )
@@ -1061,6 +1117,7 @@ def _comparison_details(
     dry_run: bool,
     source_path_format: SourcePathFormat,
     generated_title_pending: bool = False,
+    context: str | None = None,
 ) -> dict[str, object]:
     return {
         "validated": not dry_run,
@@ -1070,6 +1127,7 @@ def _comparison_details(
         "source_count": len(source_set.sources),
         "source_paths": [str(entry.document.path) for entry in source_set.sources],
         "source_path_format": source_path_format,
+        "context_sha256": context_sha256(context),
         "title": source_set.title,
         "generated_title_pending": generated_title_pending,
         "prompt_id": provider.prompt.prompt_id,
@@ -1091,6 +1149,7 @@ def _synthesize_compare(
     overwrite: bool,
     dry_run: bool,
     extend_sources: bool = False,
+    context: str | None = None,
 ) -> SummaryResult:
     source_set = resolve_synthesis_sources(
         source_values,
@@ -1100,6 +1159,7 @@ def _synthesize_compare(
         max_input_bytes=config.max_input_bytes,
         max_total_input_bytes=config.max_total_input_bytes,
     )
+    _check_total_context(source_set, context, config)
     prompt = provider.prompt
     profile = provider.profile
     automatic_existing = (
@@ -1147,6 +1207,7 @@ def _synthesize_compare(
             profile_sha256=profile.sha256,
             requested_generator=_requested_generator(provider, config),
             source_path_format=config.source_path_format,
+            context=context,
         )
         if current and not existing_errors and not overwrite:
             logger.info("Comparison note is already current: %s", target)
@@ -1159,13 +1220,14 @@ def _synthesize_compare(
                     provider,
                     dry_run=dry_run,
                     source_path_format=config.source_path_format,
+                    context=context,
                 ),
             )
         if not overwrite:
             reason = (
                 "; ".join(existing_errors)
                 if existing_errors
-                else "source set, comparison profile, or explicitly selected model changed"
+                else "source set, context, comparison profile, or explicitly selected model changed"
             )
             raise FileExistsError(
                 f"existing comparison requires explicit --overwrite ({reason}): {target}"
@@ -1180,6 +1242,7 @@ def _synthesize_compare(
     request = ComparisonRequest(
         source_set=source_set,
         prompt_envelope_version=COMPARISON_PROMPT_ENVELOPE_VERSION,
+        context=context,
     )
     if dry_run:
         action = "updated" if target.exists() else "created"
@@ -1190,6 +1253,7 @@ def _synthesize_compare(
             dry_run=True,
             source_path_format=config.source_path_format,
             generated_title_pending=generated_target_pending,
+            context=context,
         )
         details["planned_status"] = action
         details["bridge_plan"] = provider.plan(request)
@@ -1250,6 +1314,7 @@ def _synthesize_compare(
         output_path=target,
         note_id=note_id,
         created_at=created_at,
+        context_sha256=context_sha256(context),
     )
     errors = validate_summary_text(text)
     if errors:
@@ -1270,6 +1335,7 @@ def _synthesize_compare(
         provider,
         dry_run=False,
         source_path_format=config.source_path_format,
+        context=context,
     )
     details.update(
         {
@@ -1307,7 +1373,10 @@ def synthesize_compare(
     provider: ComparisonProvider | None = None,
     comparison_profile: str | None = None,
     extend_sources: bool = False,
+    context: str | None = None,
+    context_file: Path | None = None,
 ) -> SummaryResult:
+    context = load_context(context, context_file, max_input_bytes=config.max_input_bytes)
     started_at = datetime.now().astimezone()
     if extend_sources and (explicit_output is None or not overwrite):
         raise ValueError("--extend-sources requires --output and --overwrite")
@@ -1326,6 +1395,7 @@ def synthesize_compare(
             overwrite=overwrite,
             dry_run=dry_run,
             extend_sources=extend_sources,
+            context=context,
         )
     except Exception as exc:
         if dry_run:

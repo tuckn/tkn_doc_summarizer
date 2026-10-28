@@ -34,6 +34,9 @@ REQUIRED_TEMPLATE_FIELDS = frozenset(
 CONVERSATION_TEMPLATE_FIELDS = frozenset(
     {"frontmatter", "title", "cover", "meeting", "summary", "topics", "plans", "unconfirmed"}
 )
+MEETING_MINUTES_TEMPLATE_FIELDS = frozenset(
+    {"frontmatter", "title", "cover", "summary", "facts", "open_questions", "raid", "next_checks"}
+)
 _PROFILE_NAME = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 _PLACEHOLDER = re.compile(r"\{\{([a-z][a-z0-9_]*)\}\}")
 
@@ -179,11 +182,10 @@ def load_summary_template(
         raise RuntimeError(f"summary template version must be a non-empty quoted string: {source}")
     body = text[end + 5 :].strip()
     placeholders = _PLACEHOLDER.findall(body)
-    expected_fields = (
-        CONVERSATION_TEMPLATE_FIELDS
-        if profile_name == "conversation-ja"
-        else REQUIRED_TEMPLATE_FIELDS
-    )
+    expected_fields = {
+        "conversation-ja": CONVERSATION_TEMPLATE_FIELDS,
+        "meeting-minutes-ja": MEETING_MINUTES_TEMPLATE_FIELDS,
+    }.get(profile_name, REQUIRED_TEMPLATE_FIELDS)
     if set(placeholders) != expected_fields or any(
         placeholders.count(field) != 1 for field in expected_fields
     ):
@@ -204,9 +206,9 @@ def load_summary_template(
             f"summary template requiredHeadings must match its five sections: {source}"
         )
     terms_heading = metadata.get("technicalTermsHeading")
-    if profile_name == "conversation-ja":
+    if profile_name in ("conversation-ja", "meeting-minutes-ja"):
         if terms_heading is not None:
-            raise RuntimeError(f"conversation template must not require technical terms: {source}")
+            raise RuntimeError(f"meeting template must not require technical terms: {source}")
     elif not isinstance(terms_heading, str) or terms_heading not in headings:
         raise RuntimeError(f"summary template technicalTermsHeading must name a section: {source}")
     return SummaryTemplate(

@@ -167,6 +167,19 @@ def test_single_recording_leaves_date_unknown(
     assert not validate_summary(result.path)
 
 
+def test_conversation_profile_receives_context(
+    tmp_path: Path, sources: list[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    backend = _backend(monkeypatch, 1)
+    result = summarize(sources[0], _config(tmp_path), context="Background about the conversation.")
+    assert "Background about the conversation." in backend.requests[0].prompt
+    assert "SUPPLEMENTARY_CONTEXT_JSON:" in backend.requests[0].prompt
+    assert not validate_summary(result.path)
+    assert summarize(
+        sources[0], _config(tmp_path), context="Background about the conversation."
+    ).status == "unchanged"
+
+
 @pytest.mark.parametrize(
     "change", ["unknown_id", "time", "label", "missing_source", "identity", "plan"]
 )

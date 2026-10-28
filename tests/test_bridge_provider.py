@@ -142,6 +142,68 @@ def test_config_plan_has_no_partial_input_estimate() -> None:
 
 
 @pytest.mark.parametrize("mode", ["summary", "series", "compare"])
+def test_context_reaches_bridge_and_controls_reuse_in_every_mode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mode: str
+) -> None:
+    from doc_summarizer.context import context_sha256
+    from doc_summarizer.source import split_frontmatter
+    from doc_summarizer.validation import validate_summary
+
+    backend = FakeBackend()
+    use_backend(monkeypatch, backend)
+    paths = [tmp_path / "one.md", tmp_path / "two.md"]
+    for path in paths:
+        path.write_text("# Source\n\nSource evidence.", encoding="utf-8")
+    context_file = tmp_path / "background.md"
+    context_file.write_text("PRIVATE_CONTEXT_FILE", encoding="utf-8")
+    config = AppConfig(output_root=tmp_path / "out", reports_root=tmp_path / "reports")
+
+    def run(**kwargs: Any) -> Any:
+        if mode == "summary":
+            return summarize(str(paths[0]), config, **kwargs)
+        function = synthesize_series if mode == "series" else synthesize_compare
+        return function([str(path) for path in paths], config, **kwargs)
+
+    plain_plan = run(dry_run=True)
+    planned = run(
+        context="PRIVATE_CONTEXT_INLINE", context_file=context_file, dry_run=True,
+    )
+    expected_hash = context_sha256("PRIVATE_CONTEXT_INLINE\n\nPRIVATE_CONTEXT_FILE")
+    assert planned.details["context_sha256"] == expected_hash
+    assert plain_plan.details["bridge_plan"]["input_sha256"] != (
+        planned.details["bridge_plan"]["input_sha256"]
+    )
+    assert not backend.requests and not config.output_root.exists()
+    assert not config.reports_root.exists()
+    first = run(context="PRIVATE_CONTEXT_INLINE", context_file=context_file)
+    metadata, _ = split_frontmatter(first.path.read_text(encoding="utf-8"))
+    assert metadata["contextSha256"] == expected_hash
+    assert "PRIVATE_CONTEXT_INLINE" in backend.requests[0].prompt
+    assert "PRIVATE_CONTEXT_FILE" in backend.requests[0].prompt
+    assert run(
+        context=" PRIVATE_CONTEXT_INLINE ", context_file=context_file,
+    ).status == "unchanged"
+    assert len(backend.requests) == 1
+    context_file.write_text("PRIVATE_CONTEXT_CHANGED", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="--overwrite"):
+        run(context="PRIVATE_CONTEXT_INLINE", context_file=context_file)
+    with pytest.raises(RuntimeError, match="--overwrite"):
+        run()
+    updated = run(context="PRIVATE_CONTEXT_INLINE", context_file=context_file, overwrite=True)
+    changed, _ = split_frontmatter(updated.path.read_text(encoding="utf-8"))
+    assert changed["contextSha256"] != expected_hash
+    assert changed["noteId"] == metadata["noteId"]
+    assert changed["created"] == metadata["created"]
+    assert not validate_summary(updated.path)
+    removed = run(overwrite=True)
+    assert "contextSha256" not in split_frontmatter(removed.path.read_text(encoding="utf-8"))[0]
+    assert not validate_summary(removed.path)
+    assert run().status == "unchanged"
+    for report in config.reports_root.glob("*.json"):
+        assert "PRIVATE_CONTEXT" not in report.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("mode", ["summary", "series", "compare"])
 def test_pipeline_records_success_and_failure(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

@@ -1,0 +1,213 @@
+{
+  "type": "output-schema",
+  "id": "5b7df57f-3e98-4aeb-a53c-617ab220bef5",
+  "version": "1.0",
+  "schema": {
+    "$defs": {
+      "MeetingPoint": {
+        "additionalProperties": false,
+        "properties": {
+          "text": {
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          },
+          "basis": {
+            "enum": [
+              "statement",
+              "document",
+              "context",
+              "interpretation"
+            ],
+            "title": "Basis",
+            "type": "string"
+          },
+          "certainty": {
+            "enum": [
+              "confirmed",
+              "provisional",
+              "needs-confirmation"
+            ],
+            "title": "Certainty",
+            "type": "string"
+          },
+          "source_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Source Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "text",
+          "basis",
+          "certainty",
+          "source_ids"
+        ],
+        "title": "MeetingPoint",
+        "type": "object"
+      },
+      "MeetingTopic": {
+        "additionalProperties": false,
+        "properties": {
+          "heading": {
+            "minLength": 1,
+            "title": "Heading",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/$defs/MeetingPoint"
+            },
+            "minItems": 1,
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "heading",
+          "items"
+        ],
+        "title": "MeetingTopic",
+        "type": "object"
+      },
+      "RaidItem": {
+        "additionalProperties": false,
+        "properties": {
+          "text": {
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          },
+          "basis": {
+            "enum": [
+              "statement",
+              "document",
+              "context",
+              "interpretation"
+            ],
+            "title": "Basis",
+            "type": "string"
+          },
+          "certainty": {
+            "enum": [
+              "confirmed",
+              "provisional",
+              "needs-confirmation"
+            ],
+            "title": "Certainty",
+            "type": "string"
+          },
+          "source_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Source Ids",
+            "type": "array"
+          },
+          "category": {
+            "enum": [
+              "Risk",
+              "Action",
+              "Issue",
+              "Decision"
+            ],
+            "title": "Category",
+            "type": "string"
+          },
+          "owner": {
+            "minLength": 1,
+            "title": "Owner",
+            "type": "string"
+          },
+          "deadline": {
+            "minLength": 1,
+            "title": "Deadline",
+            "type": "string"
+          },
+          "status": {
+            "minLength": 1,
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text",
+          "basis",
+          "certainty",
+          "source_ids",
+          "category",
+          "owner",
+          "deadline",
+          "status"
+        ],
+        "title": "RaidItem",
+        "type": "object"
+      }
+    },
+    "additionalProperties": false,
+    "properties": {
+      "title": {
+        "minLength": 1,
+        "title": "Title",
+        "type": "string"
+      },
+      "summary": {
+        "items": {
+          "$ref": "#/$defs/MeetingPoint"
+        },
+        "minItems": 1,
+        "title": "Summary",
+        "type": "array"
+      },
+      "facts": {
+        "items": {
+          "$ref": "#/$defs/MeetingTopic"
+        },
+        "title": "Facts",
+        "type": "array"
+      },
+      "open_questions": {
+        "items": {
+          "$ref": "#/$defs/MeetingPoint"
+        },
+        "title": "Open Questions",
+        "type": "array"
+      },
+      "raid": {
+        "items": {
+          "$ref": "#/$defs/RaidItem"
+        },
+        "title": "Raid",
+        "type": "array"
+      },
+      "next_checks": {
+        "items": {
+          "$ref": "#/$defs/MeetingPoint"
+        },
+        "title": "Next Checks",
+        "type": "array"
+      },
+      "limitations": {
+        "items": {
+          "type": "string"
+        },
+        "minItems": 1,
+        "title": "Limitations",
+        "type": "array"
+      }
+    },
+    "required": [
+      "title",
+      "summary",
+      "facts",
+      "open_questions",
+      "raid",
+      "next_checks",
+      "limitations"
+    ],
+    "title": "MeetingMinutesDocument",
+    "type": "object"
+  }
+}

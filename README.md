@@ -41,6 +41,7 @@
 | 独立した記事の共通点や違いを整理する    | 比較する2件以上の文書                                 | `synthesize --mode compare`              |
 | 同一話者の主張を論点別に整理する | 要約ノート2件以上の一覧ファイル | `synthesize --mode compare --comparison-profile claims-ja --sources-file FILE` |
 | 分割録音を1つの会話記録にする | 録音順に並べた文字起こし | `synthesize --summary-profile conversation-ja --sources-file FILE` |
+| 会議後の議事メモを作る | 文字起こしと実行ごとの補足 | `summarize --summary-profile meeting-minutes-ja --context "補足" SOURCE` |
 
 URL は、保存済み Markdown を探す検索キーです。
 本 CLI は Web ページを取得しないため、URL を指定する場合は Obsidian Web Clipper などで本文を保存しておきます。
@@ -64,7 +65,7 @@ flowchart LR
 ```
 
 要約プロファイルは、言語・生成指示・出力形式をまとめた設定です。
-`default-ja` は日本語、`default-en` は英語の記事要約、`conversation-ja` は日本語の会話記録を作ります。
+`default-ja` は日本語、`default-en` は英語の記事要約、`conversation-ja` は日本語の会話記録、`meeting-minutes-ja` は会議後の議事メモを作ります。
 生成に使う接続先・モデルは Bridge の共有設定で指定し、アプリの `generation.profiles` から参照します。
 要約ノートのほかに、成功・失敗や生成条件を記録した JSON の実行レポートを保存します。
 
@@ -192,6 +193,14 @@ URL は `source_roots` に保存済みの記事を探すための検索キーで
 
 `conversation-ja` は「会合・資料情報 → 短い概要 → 話題別の記録 → 約束・予定・願望 → 未確認事項・読み取り上の制約」を作ります。発言ごとにファイルID・ファイル内時刻・元の話者ラベルを残し、実名との対応を未確認／推定／明示確認で区別します。会話日は `--conversation-date YYYY-MM-DD` で指定し、省略時は未確認です。人物分析やプレゼント提案は含めません。使い方と検証範囲は [文字起こしから会話記録を作る](docs/guides/conversations.md) を参照してください。
 
+`meeting-minutes-ja` は「概要（エグゼクティブ・サマリーの箇条書き）→ 会話で確認できた事実 → 認識差・未決事項 → RAID（Risk / Action / Issue / Decision）→ 次回確認事項」を作ります。発言・資料記載・ユーザー補足・解釈と、確定／暫定／要確認を区別し、Action の担当・期限が分からなければ要確認として残します。単一の文字起こしは `summarize`、複数録音は `synthesize --mode series` で使います。
+
+```shell
+tkn-doc-summarizer summarize "C:\path\to\transcript.md" --summary-profile meeting-minutes-ja --conversation-date 2026-10-15 --context "会社Aが会社Bへ質問し、認識を合わせる会議。途中で時間切れ。" --context-file "C:\path\to\meeting-context.md" --output "C:\path\to\meeting-minutes.md"
+```
+
+`--context` は補足テキスト、`--context-file` は UTF-8 の Markdown／テキストです。併用するとテキスト、ファイル本文の順に結合します。議事メモ以外も含む全要約 profile と比較で利用できます。補足は重要な手掛かりとして扱いますが、原文の発言と同一視しません。補足内の参照パス・URL は自動で開きません。PPTX／DOCX 等の内容を使う場合はテキスト化して渡してください。補足の追加・変更・削除も再生成条件となり、既存ノートの更新には `--overwrite` が必要です。詳細は [実行ごとの補足 context](docs/reference/configuration.md#実行ごとの補足-context) を参照してください。
+
 多数の文書は、UTF-8の一覧ファイルから入力できます。1行に1つのパスまたは保存済み記事のURLを、引用符を付けずに書きます。空行と `#` で始まる行は無視し、相対パスは一覧ファイルのフォルダを基準に解決します。位置引数との混在はできません。
 
 ```text
@@ -252,7 +261,7 @@ URL 入力の Frontmatter、出典の順序、保存先の変更、再生成と�
 
 既定では要約ノートを `~/.tkn/doc_summarizer/data/summaries/`、JSON 実行レポートを `~/.tkn/doc_summarizer/state/reports/` に保存します。
 要約ノートには出典と生成条件の Frontmatter、本文、確認状態を記録します。
-形式は単一文書が `schemaVersion: "8.0"`、連続ページが `"9.0"`、比較が `"7.0"` です。`conversation-ja` は単一録音が `"10.0"`、複数録音が `"11.0"` です。
+形式は単一文書が `schemaVersion: "8.0"`、連続ページが `"9.0"`、比較が `"7.0"` です。`conversation-ja` は単一録音が `"10.0"`、複数録音が `"11.0"`、`meeting-minutes-ja` は単一が `"12.0"`、複数が `"13.0"` です。
 
 - [要約ノートの形式](docs/reference/note-format.md)：Frontmatter の YAML 例、形式別の全項目、本文の構成。
 - [保存先、結果、対応範囲](docs/reference/output-and-results.md)：保存場所、識別条件、JSON レポート、終了コード。

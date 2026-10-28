@@ -15,7 +15,7 @@ max_total_input_bytes: 8000000
 source_path_format: native
 
 generation:
-  # Built-in resources: default-ja, default-en, or conversation-ja (conversation records).
+  # Built-in: default-ja, default-en, conversation-ja, or meeting-minutes-ja.
   summary_profile: default-ja
   # Connection/model/authentication: ~/.tkn/genai_bridge/config.yaml.
   # Choose an application profile with --profile <name>.
