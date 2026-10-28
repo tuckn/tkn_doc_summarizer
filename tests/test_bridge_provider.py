@@ -364,6 +364,25 @@ def test_unknown_shared_profile_does_not_fallback() -> None:
         BridgeProvider(bridge_profile="absent").plan()
 
 
+@pytest.mark.parametrize("provider_type", [BridgeProvider, BridgeComparisonProvider])
+def test_provider_defaults_follow_shared_profile(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    provider_type: type[BridgeProvider] | type[BridgeComparisonProvider],
+) -> None:
+    import tkn_genai_bridge.config as config_module
+    import yaml
+
+    path = tmp_path / "bridge.yaml"
+    path.write_text(yaml.safe_dump({
+        "schema_version": "1.1.0", "default_profile": "selected",
+        "profiles": {"selected": {"provider": "github-copilot"}},
+    }), encoding="utf-8")
+    monkeypatch.setattr(config_module, "user_config_path", lambda: path)
+    plan = provider_type().plan()
+    assert plan["profile_name"] == "selected"
+    assert plan["provider"] == "github-copilot"
+
+
 def test_explicit_model_reuse_supports_non_codex_and_checks_provider(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

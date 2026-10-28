@@ -62,13 +62,13 @@ def _selected_values(
 class GenerationProfile(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    bridge_profile: str = Field(default="codex-default", min_length=1)
+    bridge_profile: str | None = Field(default=None, min_length=1)
     overrides: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("bridge_profile")
     @classmethod
-    def validate_bridge_profile(cls, value: str) -> str:
-        if not value.strip():
+    def validate_bridge_profile(cls, value: str | None) -> str | None:
+        if value is not None and not value.strip():
             raise ValueError("bridge_profile must not be blank")
         return value
 

@@ -69,7 +69,7 @@ class _BridgeConnection:
     def __init__(
         self,
         *,
-        bridge_profile: str = "codex-default",
+        bridge_profile: str | None = None,
         overrides: dict[str, Any] | None = None,
     ) -> None:
         self.bridge_profile = bridge_profile
@@ -145,7 +145,7 @@ class BridgeProvider(_BridgeConnection):
     def __init__(
         self,
         *,
-        bridge_profile: str = "codex-default",
+        bridge_profile: str | None = None,
         overrides: dict[str, Any] | None = None,
         summary_profile: str = DEFAULT_SUMMARY_PROFILE,
         summary_prompt: Path | None = None,
@@ -211,7 +211,7 @@ class BridgeComparisonProvider(_BridgeConnection):
     def __init__(
         self,
         *,
-        bridge_profile: str = "codex-default",
+        bridge_profile: str | None = None,
         overrides: dict[str, Any] | None = None,
         summary_profile: str = DEFAULT_SUMMARY_PROFILE,
         comparison_profile: str | None = None,

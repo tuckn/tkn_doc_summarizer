@@ -30,6 +30,7 @@
 
 ## Unreleased
 
+- `bridge_profile` の省略／`null` で Bridge 共有設定の `default_profile` に従うようにしました。名前を明示した場合はその接続先に固定し、同梱設定例も `null` に変更しました。
 - アプリ設定を `schema_version: "2.0.0"` に変更しました。`generation.summary`／`generation.comparison` にそれぞれ `default_profile` と `profiles` を置き、各プロファイル内で Bridge の接続先と要約／比較の出力形式をまとめて指定します。`--profile` は実行モード側のプロファイルを選びます。比較の形式・接続先・モデルは要約側から独立し、要約用の `summary_prompt` 設定も比較には適用しません。
 - 旧 `generation.active_profile`／`generation.profiles`／`generation.summary_profile`、トップレベルの旧 AI 設定、`--codex-executable`／`--codex-timeout-seconds` は廃止しました。既存の設定は保存先等を維持して手動移行してください。`config list` の `generationResolved` は `summary`／`comparison` 別に表示します。
 - 生成コマンドを `summarize` に統一し、`synthesize` は廃止しました。既定の `--mode series` は1件なら単一要約、複数件なら入力順の統合要約を生成し、`--mode compare` は2件以上を比較します。位置引数と `--sources-file FILE` のどちらでも入力でき、実行レポートの `command` も `summarize` になります。既存のノート形式と再利用条件は維持します。

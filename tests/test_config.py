@@ -392,3 +392,30 @@ def test_mode_overrides_reject_invalid_selection(
 ) -> None:
     with pytest.raises(ValueError, match=match):
         resolve_config(cwd=tmp_path, kind=kind, overrides=overrides)
+
+
+def test_bridge_profile_defaults_to_shared_selection(tmp_path: Path) -> None:
+    config = resolve_config(cwd=tmp_path).config
+    assert config.generation.summary.selected.bridge_profile is None
+    assert config.generation.comparison.selected.bridge_profile is None
+
+
+@pytest.mark.parametrize("kind", ["summary", "comparison"])
+def test_null_bridge_profile_clears_lower_explicit_selection(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kind: str,
+) -> None:
+    global_config = tmp_path / "global.yaml"
+    global_config.write_text(yaml.safe_dump({"generation": {
+        kind: {"profiles": {"default": {"bridge_profile": "pinned"}}},
+    }}), encoding="utf-8")
+    monkeypatch.setattr(config_module, "global_config_path", lambda: global_config)
+    explicit = tmp_path / "config.yaml"
+    explicit.write_text(yaml.safe_dump({"generation": {
+        kind: {"profiles": {"default": {"bridge_profile": None}}},
+    }}), encoding="utf-8")
+    resolved = resolve_config(cwd=tmp_path, explicit_config=explicit)
+    assert getattr(resolved.config.generation, kind).selected.bridge_profile is None
+    assert (
+        resolved.value_sources[f"generation.{kind}.profiles.default.bridge_profile"]
+        == str(explicit)
+    )

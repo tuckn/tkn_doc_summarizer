@@ -75,7 +75,7 @@ flowchart LR
 
 - Python 3.11 以上と [uv](https://docs.astral.sh/uv/)。
 - 要約する UTF-8 のテキスト文書と、要約を書き込める保存先。
-- 要約に使う CLI または API の利用準備。既定は認証済みの Codex CLI です。
+- 要約に使う CLI または API の利用準備。Bridge 共有設定の `default_profile` に従います。共有設定がなければ認証済みの Codex CLI を使います。
 
 主対象は Windows 11 です。
 以下のコマンドはターミナルで実行し、Windows 形式の例示パスを実際のパスに置き換えてください。
@@ -108,7 +108,7 @@ tkn-doc-summarizer config init
 ### 接続先と保存先を確認する
 
 接続先・モデル・認証は Bridge の共有設定 `~/.tkn/genai_bridge/config.yaml` にまとめます。
-共有設定がない場合も組み込みの `codex-default` を利用できます。既定では認証済みの Codex CLI を使います。
+接続先の既定値は Bridge 共有設定の `default_profile` に従います。共有設定がない場合は組み込みの `codex-default` を使います。
 本 CLI は、要約では `generation.summary`、比較では `generation.comparison` の `default_profile` を使います。各 `profiles` の `bridge_profile` で Bridge の接続先、`summary_profile`／`comparison_profile` で出力形式を指定します。
 
 ```yaml
@@ -118,20 +118,20 @@ generation:
     default_profile: default
     profiles:
       default:
-        bridge_profile: codex-default
+        bridge_profile: null
         summary_profile: default-ja
       conversation:
-        bridge_profile: codex-default
+        bridge_profile: null
         summary_profile: conversation-ja
   comparison:
     default_profile: default
     profiles:
       default:
-        bridge_profile: codex-default
+        bridge_profile: null
         comparison_profile: compare-ja
 ```
 
-`summarize --profile conversation SOURCE` なら接続先と会話記録の形式をまとめて選べます。`--mode compare --profile NAME` は比較側のプロファイルを選びます。`bridge_profile` は Bridge の設定名であり、モデル名や CLI のパスではありません。
+`summarize --profile conversation SOURCE` なら接続先と会話記録の形式をまとめて選べます。`--mode compare --profile NAME` は比較側のプロファイルを選びます。`bridge_profile` の省略／`null` は Bridge の `default_profile` に追従します。`bridge_profile: copilot-default` のように名前を明示すると、その接続先に固定します。指定するのは Bridge の設定名であり、モデル名や CLI のパスではありません。
 
 旧設定の `generation.active_profile`／`generation.profiles` やトップレベルの `model` 等は廃止しました。既存の設定は、新形式への手動移行が必要です。移行例は [設定と生成プロファイル](docs/reference/configuration.md#旧形式からの移行) を参照してください。
 

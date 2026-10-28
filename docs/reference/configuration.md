@@ -50,10 +50,10 @@ generationResolved.comparison.will_call_provider=false
 | `max_total_input_bytes` | `8000000` | 複数文書を渡す1回の `summarize` のソース＋context 合計入力上限バイト数。1以上 |
 | `source_path_format` | `native` | 出典参照の形式。`native` または `file-uri` |
 | `generation.summary.default_profile` | `default` | 単一・複数入力の要約に使うアプリ内プロファイル |
-| `generation.summary.profiles.<name>.bridge_profile` | `codex-default` | Bridge 共有設定の参照先 |
+| `generation.summary.profiles.<name>.bridge_profile` | `null` | Bridge 共有設定の参照先。省略／`null` は Bridge の `default_profile` |
 | `generation.summary.profiles.<name>.summary_profile` | `default-ja` | 要約の出力形式。`default-ja` / `default-en` / `conversation-ja` / `meeting-minutes-ja` |
 | `generation.comparison.default_profile` | `default` | 比較に使うアプリ内プロファイル |
-| `generation.comparison.profiles.<name>.bridge_profile` | `codex-default` | 比較用の Bridge 共有設定の参照先 |
+| `generation.comparison.profiles.<name>.bridge_profile` | `null` | 比較用の Bridge 共有設定の参照先。省略／`null` は Bridge の `default_profile` |
 | `generation.comparison.profiles.<name>.comparison_profile` | `compare-ja` | 比較の出力形式。`compare-ja` / `compare-en` / `claims-ja` |
 | `generation.<summary または comparison>.profiles.<name>.overrides` | `{}` | このアプリでの接続設定上書き |
 | `summary_prompt` | `null` | 組み込み指示を使用。ファイル名または絶対パスで変更 |
@@ -83,6 +83,8 @@ source_roots:
 
 Bridge の共有設定は `~/.tkn/genai_bridge/config.yaml` です。共有設定がなくても組み込みの `codex-default` を利用できます。
 
+`bridge_profile` を省略、または `null` にすると、Bridge 側の `default_profile` を使います。Bridge の既定値を変更すると、このアプリも次の実行から追従します。`bridge_profile: copilot-default` のように名前を明示した場合は、その接続先に固定します。空文字や空白だけの指定はエラーです。`--bridge-profile NAME` はその実行だけ接続先を固定します。
+
 Bridge の共有設定を明示する場合の最小例です。既存の設定があれば、利用するプロファイルを選んでください。
 
 ```yaml
@@ -103,7 +105,7 @@ generation:
     default_profile: default
     profiles:
       default:
-        bridge_profile: codex-default
+        bridge_profile: null
         summary_profile: default-ja
       conversation:
         bridge_profile: claude-default
@@ -114,7 +116,7 @@ generation:
     default_profile: default
     profiles:
       default:
-        bridge_profile: codex-default
+        bridge_profile: null
         comparison_profile: compare-ja
       claims:
         bridge_profile: claude-default

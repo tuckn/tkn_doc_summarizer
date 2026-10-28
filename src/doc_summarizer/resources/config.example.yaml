@@ -17,14 +17,15 @@ source_path_format: native
 generation:
   # Connection/model/authentication remain in ~/.tkn/genai_bridge/config.yaml.
   # --profile selects an application profile in the current mode's group.
+  # bridge_profile: null (or omitted) follows Bridge's default_profile.
   summary:  # summarize --mode series (one or multiple sources).
     default_profile: default
     profiles:
       default:
-        bridge_profile: codex-default
+        bridge_profile: null
         summary_profile: default-ja
       conversation:
-        bridge_profile: codex-default
+        bridge_profile: null
         summary_profile: conversation-ja
       # Define claude-default in Bridge before selecting this profile.
       # meeting:
@@ -36,10 +37,10 @@ generation:
     default_profile: default
     profiles:
       default:
-        bridge_profile: codex-default
+        bridge_profile: null
         comparison_profile: compare-ja
       claims:
-        bridge_profile: codex-default
+        bridge_profile: null
         comparison_profile: claims-ja
 
 # null uses the selected profile's packaged prompt. A filename is resolved below
