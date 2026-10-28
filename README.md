@@ -196,10 +196,10 @@ URL は `source_roots` に保存済みの記事を探すための検索キーで
 `meeting-minutes-ja` は「概要（エグゼクティブ・サマリーの箇条書き）→ 会話で確認できた事実 → 認識差・未決事項 → RAID（Risk / Action / Issue / Decision）→ 次回確認事項」を作ります。発言・資料記載・ユーザー補足・解釈と、確定／暫定／要確認を区別し、Action の担当・期限が分からなければ要確認として残します。単一の文字起こしは `summarize`、複数録音は `synthesize --mode series` で使います。
 
 ```shell
-tkn-doc-summarizer summarize "C:\path\to\transcript.md" --summary-profile meeting-minutes-ja --conversation-date 2026-10-15 --context "会社Aが会社Bへ質問し、認識を合わせる会議。途中で時間切れ。" --context-file "C:\path\to\meeting-context.md" --output "C:\path\to\meeting-minutes.md"
+tkn-doc-summarizer summarize "C:\path\to\transcript.md" --summary-profile meeting-minutes-ja --conversation-date 2026-10-15 --context "会社Aが会社Bへ質問し、認識を合わせる会議。途中で時間切れ。" --context "C:\path\to\meeting-context.md" --output "C:\path\to\meeting-minutes.md"
 ```
 
-`--context` は補足テキスト、`--context-file` は UTF-8 の Markdown／テキストです。併用するとテキスト、ファイル本文の順に結合します。議事メモ以外も含む全要約 profile と比較で利用できます。補足は重要な手掛かりとして扱いますが、原文の発言と同一視しません。補足内の参照パス・URL は自動で開きません。PPTX／DOCX 等の内容を使う場合はテキスト化して渡してください。補足の追加・変更・削除も再生成条件となり、既存ノートの更新には `--overwrite` が必要です。詳細は [実行ごとの補足 context](docs/reference/configuration.md#実行ごとの補足-context) を参照してください。
+`--context` は補足テキストまたは UTF-8 ファイルのパスを受け取り、複数回指定できます。パスなら本文を読み込み、それ以外は文字列として、指定順に空行で結合します。パス形式なのにファイルが存在しない場合はエラーです。議事メモ以外も含む全要約 profile と比較で利用できます。補足は重要な手掛かりとして扱いますが、原文の発言と同一視しません。読み込んだ補足本文内の参照パス・URL は自動で開きません。PPTX／DOCX 等の内容を使う場合はテキスト化して渡してください。補足の追加・変更・削除・並べ替えも再生成条件となり、既存ノートの更新には `--overwrite` が必要です。詳細は [実行ごとの補足 context](docs/reference/configuration.md#実行ごとの補足-context) を参照してください。
 
 多数の文書は、UTF-8の一覧ファイルから入力できます。1行に1つのパスまたは保存済み記事のURLを、引用符を付けずに書きます。空行と `#` で始まる行は無視し、相対パスは一覧ファイルのフォルダを基準に解決します。位置引数との混在はできません。
 

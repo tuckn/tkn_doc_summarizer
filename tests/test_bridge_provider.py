@@ -166,7 +166,7 @@ def test_context_reaches_bridge_and_controls_reuse_in_every_mode(
 
     plain_plan = run(dry_run=True)
     planned = run(
-        context="PRIVATE_CONTEXT_INLINE", context_file=context_file, dry_run=True,
+        context=["PRIVATE_CONTEXT_INLINE", str(context_file)], dry_run=True,
     )
     expected_hash = context_sha256("PRIVATE_CONTEXT_INLINE\n\nPRIVATE_CONTEXT_FILE")
     assert planned.details["context_sha256"] == expected_hash
@@ -175,21 +175,23 @@ def test_context_reaches_bridge_and_controls_reuse_in_every_mode(
     )
     assert not backend.requests and not config.output_root.exists()
     assert not config.reports_root.exists()
-    first = run(context="PRIVATE_CONTEXT_INLINE", context_file=context_file)
+    first = run(context=["PRIVATE_CONTEXT_INLINE", str(context_file)])
     metadata, _ = split_frontmatter(first.path.read_text(encoding="utf-8"))
     assert metadata["contextSha256"] == expected_hash
     assert "PRIVATE_CONTEXT_INLINE" in backend.requests[0].prompt
     assert "PRIVATE_CONTEXT_FILE" in backend.requests[0].prompt
     assert run(
-        context=" PRIVATE_CONTEXT_INLINE ", context_file=context_file,
+        context=[" PRIVATE_CONTEXT_INLINE ", str(context_file)],
     ).status == "unchanged"
     assert len(backend.requests) == 1
+    with pytest.raises(RuntimeError, match="--overwrite"):
+        run(context=[str(context_file), "PRIVATE_CONTEXT_INLINE"])
     context_file.write_text("PRIVATE_CONTEXT_CHANGED", encoding="utf-8")
     with pytest.raises(RuntimeError, match="--overwrite"):
-        run(context="PRIVATE_CONTEXT_INLINE", context_file=context_file)
+        run(context=["PRIVATE_CONTEXT_INLINE", str(context_file)])
     with pytest.raises(RuntimeError, match="--overwrite"):
         run()
-    updated = run(context="PRIVATE_CONTEXT_INLINE", context_file=context_file, overwrite=True)
+    updated = run(context=["PRIVATE_CONTEXT_INLINE", str(context_file)], overwrite=True)
     changed, _ = split_frontmatter(updated.path.read_text(encoding="utf-8"))
     assert changed["contextSha256"] != expected_hash
     assert changed["noteId"] == metadata["noteId"]

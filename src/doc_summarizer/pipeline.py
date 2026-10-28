@@ -512,10 +512,9 @@ def summarize(
     dry_run: bool = False,
     provider: SummaryProvider | None = None,
     conversation_date: str | None = None,
-    context: str | None = None,
-    context_file: Path | None = None,
+    context: str | list[str] | None = None,
 ) -> SummaryResult:
-    context = load_context(context, context_file, max_input_bytes=config.max_input_bytes)
+    context = load_context(context, max_input_bytes=config.max_input_bytes)
     started_at = datetime.now().astimezone()
     active_provider = provider or provider_for_config(config)
     try:
@@ -931,10 +930,9 @@ def synthesize_series(
     dry_run: bool = False,
     provider: SummaryProvider | None = None,
     conversation_date: str | None = None,
-    context: str | None = None,
-    context_file: Path | None = None,
+    context: str | list[str] | None = None,
 ) -> SummaryResult:
-    context = load_context(context, context_file, max_input_bytes=config.max_input_bytes)
+    context = load_context(context, max_input_bytes=config.max_input_bytes)
     started_at = datetime.now().astimezone()
     active_provider = provider or provider_for_config(config)
     try:
@@ -1373,10 +1371,9 @@ def synthesize_compare(
     provider: ComparisonProvider | None = None,
     comparison_profile: str | None = None,
     extend_sources: bool = False,
-    context: str | None = None,
-    context_file: Path | None = None,
+    context: str | list[str] | None = None,
 ) -> SummaryResult:
-    context = load_context(context, context_file, max_input_bytes=config.max_input_bytes)
+    context = load_context(context, max_input_bytes=config.max_input_bytes)
     started_at = datetime.now().astimezone()
     if extend_sources and (explicit_output is None or not overwrite):
         raise ValueError("--extend-sources requires --output and --overwrite")

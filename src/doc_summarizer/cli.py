@@ -108,12 +108,12 @@ def _configure_logging(args: argparse.Namespace) -> None:
 def _context_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--context",
-        help="supplementary context text for this run, separate from source evidence",
-    )
-    parser.add_argument(
-        "--context-file",
-        type=Path,
-        help="UTF-8 supplementary context file; combined with --context if both are given",
+        action="append",
+        metavar="TEXT_OR_FILE",
+        help=(
+            "supplementary text or UTF-8 file path; repeatable, combined in order; "
+            "path-like values must name readable files"
+        ),
     )
 
 
@@ -476,7 +476,6 @@ def main(argv: list[str] | None = None) -> int:
                 dry_run=args.dry_run,
                 conversation_date=args.conversation_date,
                 context=args.context,
-                context_file=args.context_file,
             )
             if result.status == "planned":
                 logger.info("Dry run completed without writes")
@@ -508,7 +507,7 @@ def main(argv: list[str] | None = None) -> int:
                     overwrite=args.overwrite, dry_run=args.dry_run,
                     comparison_profile=args.comparison_profile,
                     extend_sources=args.extend_sources,
-                    context=args.context, context_file=args.context_file,
+                    context=args.context,
                 )
             else:
                 result = synthesize_series(
@@ -520,7 +519,6 @@ def main(argv: list[str] | None = None) -> int:
                     dry_run=args.dry_run,
                     conversation_date=args.conversation_date,
                     context=args.context,
-                    context_file=args.context_file,
                 )
             if result.status == "planned":
                 logger.info("Dry run completed without writes")

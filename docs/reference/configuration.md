@@ -147,14 +147,15 @@ tkn-doc-summarizer prompt init my-summary.md
 
 ```shell
 tkn-doc-summarizer summarize "<source-file>" --context "略称ABCは今回の製品名。費用と期限に注目。"
-tkn-doc-summarizer synthesize --sources-file sources.txt --summary-profile meeting-minutes-ja --context-file "C:\path\to\context.md"
+tkn-doc-summarizer synthesize --sources-file sources.txt --summary-profile meeting-minutes-ja --context "会議の背景。" --context "C:\path\to\context.md" --context "期限は未確定。"
 tkn-doc-summarizer synthesize "<article-a>" "<article-b>" --mode compare --context "両記事の前提条件の違いを重視。"
 ```
 
-- `--context TEXT` は今回の補足テキストです。長い補足・テキスト化した参照資料・別のツールの要約は `--context-file FILE` にまとめられます。ファイルには Frontmatter や所定の見出しは不要です。
-- 両方指定すると、inline テキスト、ファイル本文の順に空行で結合します。改行を LF に統一し、各入力の前後の空白を除きます。ファイルは UTF-8（BOM 可）。相対パスは実行時の作業フォルダを基準とし、ファイル自体は変更しません。
+- `--context TEXT_OR_FILE` は、補足テキストまたは UTF-8 ファイルのパスです。複数回指定でき、テキストとファイルを自由に混在させられます。長い補足・テキスト化した参照資料・別のツールの要約はファイルにまとめられます。Frontmatter や所定の見出しは不要です。
+- 既存のファイルは拡張子なしでも読み込みます。絶対パス、`.\`・`..\`・`~\` で始まるパス、空白のない `context.md` のような拡張子付きの名前や `notes\context` のような相対パスもファイル指定と判定し、存在しなければエラーです。空白を含む相対パスを明確に指定するには `.\meeting context.md` のように書いてください。通常の文章、複数行のテキスト、`https://...` 等の URL は文字列として扱います。
+- 各 `--context` を指定順に読み込み、空行で結合します。改行を LF に統一し、各入力の前後の空白を除きます。ファイルは UTF-8（BOM 可）。相対パスは実行時の作業フォルダを基準とし、ファイル自体は変更しません。同じ指定を繰り返した場合も順序を保ち、重複除去はしません。
 - 明示した補足が空、ファイルが読めない、UTF-8 でない、サイズ上限を超える場合は生成前に停止します。ファイルの読込サイズと結合後テキストはそれぞれ `max_input_bytes` 以内、`synthesize` はソースと context の合計も `max_total_input_bytes` 以内である必要があります。
 - 背景・用語・名前の表記・注目点の有力な手掛かりとして使います。ただし、会議での発言や独立確認された事実に格上げせず、原文との矛盾は留保として残すよう指示します。比較でも context だけの主張を S番号の根拠にしません。
-- context 中のパス・URL は参照先を自動取得する指定ではありません。PPTX／DOCX／PDF 等の抽出は行わず、必要な本文をテキスト化して含めます。補足の中でも「ユーザーの手掛かり」「参照資料の抜粋」「別ツールの要約」等を区別して記述してください。
+- 読み込んだ context 本文中のパス・URL を再帰的に開くことはありません。URL の取得や PPTX／DOCX／PDF 等の抽出も行わず、必要な本文をテキスト化して含めます。補足の中でも「ユーザーの手掛かり」「参照資料の抜粋」「別ツールの要約」等を区別して記述してください。
 
-context は設定ファイルや profile に固定保存せず、今回の入力とともに選択した Bridge 接続先へ渡します。渡してよい情報だけを指定してください。正規化・結合後のテキストの SHA-256 をノートの `contextSha256` と実行結果の `details.context_sha256` に記録し、元の補足全文は Frontmatter・実行レポートに保存しません（生成本文には反映されます）。同じ補足なら再利用でき、補足の追加・変更・削除には `--overwrite` が必要です。再実行に必要な補足は利用者が保持してください。`--dry-run` でも補足を読み込み、生成計画の入力ハッシュ・token 概算へ反映しますが、外部生成・書き込みはしません。
+context は設定ファイルや profile に固定保存せず、今回の入力とともに選択した Bridge 接続先へ渡します。渡してよい情報だけを指定してください。正規化・結合後のテキストの SHA-256 をノートの `contextSha256` と実行結果の `details.context_sha256` に記録し、元の補足全文は Frontmatter・実行レポートに保存しません（生成本文には反映されます）。同じ補足なら再利用でき、補足の追加・変更・削除・並べ替えで結合結果が変わる場合は `--overwrite` が必要です。再実行に必要な補足は利用者が保持してください。`--dry-run` でも補足を読み込み、生成計画の入力ハッシュ・token 概算へ反映しますが、外部生成・書き込みはしません。

@@ -27,12 +27,13 @@ from doc_summarizer.synthesis import resolve_synthesis_sources
 def test_context_combines_inline_and_bom_file_with_normalized_newlines(tmp_path: Path) -> None:
     path = tmp_path / "context.md"
     path.write_bytes(b"\xef\xbb\xbf# Background\r\n\r\nReference text.\r\n")
-    context = load_context("  Focus\r\non dates. ", path, max_input_bytes=100)
+    context = load_context(["  Focus\r\non dates. ", str(path)], max_input_bytes=100)
     assert context == "Focus\non dates.\n\n# Background\n\nReference text."
     assert context_sha256(context) == context_sha256(
-        load_context(context, None, max_input_bytes=100)
+        load_context(context, max_input_bytes=100)
     )
-    assert load_context(None, None, max_input_bytes=100) is None
+    assert load_context(None, max_input_bytes=100) is None
+    assert load_context([], max_input_bytes=100) is None
     assert context_sha256(None) is None
 
 
@@ -53,14 +54,102 @@ def test_invalid_context_fails_explicitly(
     path = tmp_path / "context.txt"
     if payload is not None:
         path.write_bytes(payload)
+    values = ([text] if text is not None else []) + ([str(path)] if payload is not None else [])
     with pytest.raises(ValueError, match=message):
-        load_context(text, path if payload is not None else None, max_input_bytes=limit)
+        load_context(values, max_input_bytes=limit)
 
 
 def test_context_file_must_exist_and_size_boundary_is_exact(tmp_path: Path) -> None:
-    with pytest.raises(ValueError, match="cannot read --context-file"):
-        load_context(None, tmp_path / "missing.md", max_input_bytes=10)
-    assert load_context("1234567890", None, max_input_bytes=10) == "1234567890"
+    with pytest.raises(ValueError, match="cannot read --context file"):
+        load_context(str(tmp_path / "missing.md"), max_input_bytes=10)
+    assert load_context("1234567890", max_input_bytes=10) == "1234567890"
+
+
+def test_context_preserves_interleaved_text_file_and_duplicate_order(tmp_path: Path) -> None:
+    first, second = tmp_path / "first.md", tmp_path / "second.txt"
+    first.write_text("First file.", encoding="utf-8")
+    second.write_text("Second file.", encoding="utf-8")
+    assert load_context(
+        [str(second), "Inline text.", str(first), "More text.", str(second)],
+        max_input_bytes=100,
+    ) == "Second file.\n\nInline text.\n\nFirst file.\n\nMore text.\n\nSecond file."
+
+
+@pytest.mark.parametrize(
+    "filename", ["context.md", r".\context.md", r"notes\context.md", "notes/context.md",
+                 "meeting context.md", "CONTEXT"],
+)
+def test_context_reads_existing_relative_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, filename: str
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    path = Path(filename)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("File body.", encoding="utf-8")
+    assert load_context(filename, max_input_bytes=100) == "File body."
+
+
+def test_context_expands_home_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    monkeypatch.setenv("HOME", str(tmp_path))
+    (tmp_path / "context.md").write_text("Home file.", encoding="utf-8")
+    assert load_context(r"~\context.md", max_input_bytes=100) == "Home file."
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["context.md", r".\missing file.md", r"notes\context.md", r"notes\missing",
+     r"C:\missing\context.md"],
+)
+def test_missing_path_like_context_is_not_silently_used_as_text(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(ValueError, match="cannot read --context file"):
+        load_context(value, max_input_bytes=100)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "Focus on the meeting.",
+        "Please refer to context.md",
+        "https://example.com/context.md",
+        "Reference: context.md",
+        r"Reference: C:\notes\context.md",
+        "First line.\ncontext.md",
+        "Amount\t100",
+        "The value is 1.5",
+        "x" * 300,
+    ],
+)
+def test_context_does_not_misinterpret_prose_or_urls_as_file_paths(value: str) -> None:
+    assert load_context(value, max_input_bytes=1000) == value
+
+
+def test_context_file_contents_are_not_recursively_opened(tmp_path: Path) -> None:
+    path = tmp_path / "context.md"
+    path.write_text("missing-reference.md", encoding="utf-8")
+    assert load_context(str(path), max_input_bytes=100) == "missing-reference.md"
+
+
+def test_context_rejects_directory_and_permission_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with pytest.raises(ValueError, match="not a regular file"):
+        load_context(str(tmp_path), max_input_bytes=100)
+
+    def denied(self: Path, **kwargs: object) -> object:
+        raise PermissionError("test permission failure")
+
+    monkeypatch.setattr(Path, "stat", denied)
+    with pytest.raises(ValueError, match="cannot read --context file"):
+        load_context(str(tmp_path / "context.md"), max_input_bytes=100)
+    with pytest.raises(ValueError, match="cannot inspect --context file"):
+        load_context("context", max_input_bytes=100)
 
 
 @pytest.mark.parametrize("mode", ["series", "compare"])

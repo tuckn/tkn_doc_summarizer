@@ -14,7 +14,7 @@ transcripts/recording-3.md
 transcripts/recording-4.md
 ```
 
-当時メモや事前の話題案は、この録音一覧に混ぜず、`--context` または `--context-file` で補足として渡せます。補足があるだけで人物同定を確定扱いにはしません。
+当時メモや事前の話題案は、この録音一覧に混ぜず、`--context` へテキストまたは UTF-8 ファイルのパスを指定して補足として渡せます。複数指定も可能です。補足があるだけで人物同定を確定扱いにはしません。
 
 ```shell
 tkn-doc-summarizer synthesize --sources-file sources.txt --mode series --summary-profile conversation-ja --conversation-date 2026-10-17 --output "C:\path\to\conversation.md" --dry-run
@@ -85,15 +85,15 @@ tkn-doc-summarizer validate "C:\path\to\conversation.md"
 業務会議の状況・事実・未決事項・対応を整理する場合は `meeting-minutes-ja` を使います。`conversation-ja` の詳細な会話記録とは別の profile です。
 
 ```shell
-tkn-doc-summarizer summarize "C:\path\to\transcript.md" --summary-profile meeting-minutes-ja --conversation-date 2026-10-15 --context "会社Aから会社Bへの質問と認識合わせ。時間切れで終了。" --context-file "C:\path\to\context.md" --output "C:\path\to\meeting-minutes.md"
-tkn-doc-summarizer synthesize --sources-file sources.txt --summary-profile meeting-minutes-ja --conversation-date 2026-10-15 --context-file "C:\path\to\context.md" --dry-run
+tkn-doc-summarizer summarize "C:\path\to\transcript.md" --summary-profile meeting-minutes-ja --conversation-date 2026-10-15 --context "会社Aから会社Bへの質問と認識合わせ。時間切れで終了。" --context "C:\path\to\context.md" --output "C:\path\to\meeting-minutes.md"
+tkn-doc-summarizer synthesize --sources-file sources.txt --summary-profile meeting-minutes-ja --conversation-date 2026-10-15 --context "C:\path\to\context.md" --dry-run
 ```
 
 出力は、概要（エグゼクティブ・サマリーの箇条書き）、会話で確認できた事実、認識差・未決事項、RAID（Risk / Action / Issue / Decision）、次回確認事項の5節です。概要には会話日・入力一覧・読み取り上の制約も併記します。会話日を省略すると未確認となります。
 
 発言・資料記載・ユーザー補足・解釈と、確定／暫定／要確認を各項目に表示します。RAID の担当・期限が分からなければ会社名・役割または不明／未指定として残し、条件付きの方針を確定した決定にしないよう指示します。話者ラベルだけで実名や人数は断定しません。該当のない節は、その旨を表示します。
 
-context は案件固有の手掛かり、表記、テキスト化した資料や別ツールの要約に使えます。ファイルに書いた参照パスを自動で開く機能ではありません。[context の入力方法と扱い](../reference/configuration.md#実行ごとの補足-context)を確認してください。
+context は案件固有の手掛かり、表記、テキスト化した資料や別ツールの要約に使えます。`--context` 自体に指定したファイルは読み込みますが、その本文に書いた参照パスをさらに開く機能ではありません。[context の入力方法と扱い](../reference/configuration.md#実行ごとの補足-context)を確認してください。
 
 生成時は専用 JSON の型、全入力の出典使用、未知・重複した S番号、補足だけの主張に出典を付けていないこと、事実の節へ補足・解釈を混ぜていないことを検査します。保存後は Frontmatter・見出し・概要の箇条書き・RAID の列・出典ID・原文ハッシュを検査します。`conversation-ja` と異なり、ファイル内時刻・話者ラベルの厳密な区間照合は行いません。数値の確度、発言の意味、根拠が主張を裏付けるか、人物の同定や RAID の分類の妥当性は元文書と照合してください。
 

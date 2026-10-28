@@ -46,7 +46,7 @@ def test_dry_run_outputs_only_json_to_stdout(
 
 
 @pytest.mark.parametrize("mode", ["summary", "series", "compare"])
-def test_cli_accepts_per_run_context_and_context_file(
+def test_cli_accepts_repeated_context_text_and_files(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], mode: str
 ) -> None:
     from doc_summarizer.context import context_sha256
@@ -63,13 +63,15 @@ def test_cli_accepts_per_run_context_and_context_file(
     if mode == "compare":
         args.extend(["--mode", "compare", "--comparison-profile", "claims-ja"])
     args.extend([
-        "--context", "Meeting hint.", "--context-file", str(context),
+        "--context", str(context), "--context", "Meeting hint.", "--context", str(context),
         "--output-root", str(tmp_path / "out"), "--reports-root", str(tmp_path / "reports"),
         "--dry-run",
     ])
     assert main(args) == 0
     result = json.loads(capsys.readouterr().out)
-    assert result["details"]["context_sha256"] == context_sha256("Meeting hint.\n\nReference text.")
+    assert result["details"]["context_sha256"] == context_sha256(
+        "Reference text.\n\nMeeting hint.\n\nReference text."
+    )
     assert not (tmp_path / "out").exists() and not (tmp_path / "reports").exists()
 
 
@@ -79,12 +81,25 @@ def test_cli_rejects_missing_context_file_without_writes(
     source = tmp_path / "one.md"
     source.write_text("# One\n\nFirst.", encoding="utf-8")
     assert main([
-        "summarize", str(source), "--context-file", str(tmp_path / "missing.md"),
+        "summarize", str(source), "--context", str(tmp_path / "missing.md"),
         "--output-root", str(tmp_path / "out"), "--reports-root", str(tmp_path / "reports"),
     ]) == 1
-    assert "cannot read --context-file" in capsys.readouterr().err
+    assert "cannot read --context file" in capsys.readouterr().err
     assert not (tmp_path / "out").exists() and not (tmp_path / "reports").exists()
 
+
+def test_context_help_exposes_only_repeatable_unified_option(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    parser = build_parser()
+    args = parser.parse_args(
+        ["summarize", "source.md", "--context", "first", "--context", "second"]
+    )
+    assert args.context == ["first", "second"]
+    with pytest.raises(SystemExit) as error:
+        parser.parse_args(["summarize", "source.md", "--context-file", "context.md"])
+    assert error.value.code == 2
+    assert "unrecognized arguments: --context-file" in capsys.readouterr().err
 
 def test_series_dry_run_outputs_resolved_sources_without_writes(
     tmp_path: Path,
