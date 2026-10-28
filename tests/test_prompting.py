@@ -15,7 +15,7 @@ from doc_summarizer.prompting import (
 def test_built_in_prompt_is_packaged() -> None:
     prompt = load_summary_prompt()
     assert prompt.mode == "built-in"
-    assert prompt.source == "package:profiles/default-ja/prompt.md"
+    assert prompt.source == "package:profiles/summary/default-ja/prompt.md"
     assert len(prompt.sha256) == 64
     assert "Source fidelity" in prompt.instructions
     assert prompt.version == "3.3"
@@ -26,7 +26,7 @@ def test_built_in_prompt_is_packaged() -> None:
 def test_english_built_in_prompt_is_packaged() -> None:
     prompt = load_summary_prompt(profile_name="default-en")
 
-    assert prompt.source == "package:profiles/default-en/prompt.md"
+    assert prompt.source == "package:profiles/summary/default-en/prompt.md"
     assert "source-faithful English summary" in prompt.instructions
     assert "roughly 120–200 words" in prompt.instructions
 

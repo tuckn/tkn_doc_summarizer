@@ -2,7 +2,7 @@
 
 ## 入力を一覧ファイルにまとめる
 
-`synthesize --sources-file FILE` は、UTF-8のテキスト一覧を読み込みます（BOMありも可）。1行に引用符なしのファイルパスまたは保存済みURLを1件書き、空行と `#` から始まる行はコメントとして無視します。空白を含むパスも1件です。行内の `#` はパスやURLの一部として保持します。相対ファイルパスは一覧のフォルダを基準に解決し、入力順を保持します。
+`summarize --sources-file FILE` は、UTF-8のテキスト一覧を読み込みます（BOMありも可）。1行に引用符なしのファイルパスまたは保存済みURLを1件書き、空行と `#` から始まる行はコメントとして無視します。空白を含むパスも1件です。行内の `#` はパスやURLの一部として保持します。相対ファイルパスは一覧のフォルダを基準に解決し、入力順を保持します。
 
 ```text
 # sources.txt
@@ -11,15 +11,15 @@ articles/second.md
 ```
 
 ```shell
-tkn-doc-summarizer synthesize --sources-file sources.txt --mode compare --dry-run
+tkn-doc-summarizer summarize --sources-file sources.txt --mode compare --dry-run
 ```
 
-位置引数 `SOURCE` との混在はできません。2件以上が必要で、同じ実ファイルへの重複指定はエラーです。一覧は2,000,000 bytesまで、文書には通常の `max_input_bytes` と `max_total_input_bytes` が適用されます。一覧を読むだけでは入力文書・一覧を書き換えません。
+位置引数 `SOURCE` との混在はできません。既定の `series` は1件以上、`compare` は2件以上が必要で、同じ実ファイルへの重複指定はエラーです。1件なら単一文書の要約、複数件なら統合・比較になります。一覧は2,000,000 bytesまで、各文書には `max_input_bytes`、複数文書には context を含めた `max_total_input_bytes` も適用されます。一覧を読むだけでは入力文書・一覧を書き換えません。
 
 ## 同じ話者の主張を整理する
 
 ```shell
-tkn-doc-summarizer synthesize --sources-file sources.txt --mode compare --comparison-profile claims-ja --output "C:\path\to\permanent\speaker-claims.md"
+tkn-doc-summarizer summarize --sources-file sources.txt --mode compare --comparison-profile claims-ja --output "C:\path\to\permanent\speaker-claims.md"
 ```
 
 `--comparison-profile` はcompareモード専用で、`compare-ja`・`compare-en`・`claims-ja` から選びます。省略すると従来どおり `--summary-profile` の言語に応じた比較profileです。`claims-ja` は日本語で主張の全体像、繰り返し、論点別の論拠、違い・留保、個別動画の主張、用語、結論、出典一覧を作成します。
@@ -35,8 +35,8 @@ tkn-doc-summarizer synthesize --sources-file sources.txt --mode compare --compar
 比較・主張整理の入力一覧に新しい要約を追加したときは、次のように更新します。`sources.txt` は既存の全出典と追加出典を含めます。一覧内の順序は変更できますが、旧S番号は再割り当てされる場合があります。
 
 ```shell
-tkn-doc-summarizer synthesize --sources-file sources.txt --mode compare --comparison-profile claims-ja --output "C:\path\to\permanent\speaker-claims.md" --extend-sources --overwrite --dry-run
-tkn-doc-summarizer synthesize --sources-file sources.txt --mode compare --comparison-profile claims-ja --output "C:\path\to\permanent\speaker-claims.md" --extend-sources --overwrite
+tkn-doc-summarizer summarize --sources-file sources.txt --mode compare --comparison-profile claims-ja --output "C:\path\to\permanent\speaker-claims.md" --extend-sources --overwrite --dry-run
+tkn-doc-summarizer summarize --sources-file sources.txt --mode compare --comparison-profile claims-ja --output "C:\path\to\permanent\speaker-claims.md" --extend-sources --overwrite
 ```
 
 `--extend-sources` はcompareモード専用です。既存ファイルを `--output` で明示し、`--overwrite` を併用する必要があります。入力集合を変更する場合は、既存の全出典が含まれ、新しい出典が増えていることを実ファイルのパスで確認します。出典の削除・置換や、並べ替えだけによる集合変更は拒否します。別のモード・profile・promptへの置換も許可しません。通常の `--overwrite` だけでは異なる入力集合を置き換えません。
@@ -63,7 +63,7 @@ tkn-doc-summarizer summarize "https://example.com/article"
 ## 連続ページを統合する
 
 ```shell
-tkn-doc-summarizer synthesize "<page-1>" "<page-2>"
+tkn-doc-summarizer summarize "<page-1>" "<page-2>"
 ```
 
 2件以上の文書パスまたは保存済み記事の URL をページ順に指定します。既定の `series` モードでは、引数の順序をページ順として扱います。同じローカルファイルを重複指定すると停止します。ページ共通の重複を抑え、ページをまたぐ論旨を保持するよう生成を依頼します。
@@ -71,12 +71,12 @@ tkn-doc-summarizer synthesize "<page-1>" "<page-2>"
 ## 独立した記事を比較する
 
 ```shell
-tkn-doc-summarizer synthesize "<article-a>" "<article-b>" --mode compare
+tkn-doc-summarizer summarize "<article-a>" "<article-b>" --mode compare
 ```
 
 2件以上の文書に `S1`、`S2`…の出典 ID を付けて比較します。引数の順序が ID を決めますが、権威・優先順位・時系列は意味しません。共通概念、観点、相違・対立、各出典固有の知見を整理します。根拠のない対立を作らないよう生成を依頼します。比較モードではカスタム `summary_prompt` を使えないため、設定値は `null` にします。
 
-両モードとも `--title "<title>"` でタイトルを指定できます。省略すると AI が全体から決めます。新規ノートの `--dry-run` では先頭文書のタイトルに基づく暫定パスが表示され、`details.generated_title_pending` が `true` になります。
+複数文書では両モードとも `--title "<title>"` でタイトルを指定できます。単一文書への `--title` は受け付けません。複数文書で省略すると AI が全体から決めます。新規ノートの `--dry-run` では先頭文書のタイトルに基づく暫定パスが表示され、`details.generated_title_pending` が `true` になります。
 
 ## 言語と保存先を変更する
 
@@ -85,7 +85,7 @@ tkn-doc-summarizer summarize "<source-file>" --summary-profile default-en
 tkn-doc-summarizer summarize "<source-file>" --output "<output-file>.md"
 ```
 
-言語別のノートは共存できます。`--output` は特定ファイル、`--output-root "<output-directory>"` は自動命名するフォルダをその実行だけ変更します。`synthesize` でも使えます。保存先の詳細は [出力と実行結果](../reference/output-and-results.md)を参照してください。
+言語別のノートは共存できます。`--output` は特定ファイル、`--output-root "<output-directory>"` は自動命名するフォルダをその実行だけ変更します。単一文書・複数文書・比較で共通です。保存先の詳細は [出力と実行結果](../reference/output-and-results.md)を参照してください。
 
 ## 既存ノートを再実行する
 
@@ -105,7 +105,7 @@ tkn-doc-summarizer summarize "<source-file>" --overwrite --dry-run
 tkn-doc-summarizer summarize "<source-file>" --overwrite
 ```
 
-`synthesize` も同じ指定を使えます。同じノートの更新では `noteId` と作成日時 `created` を保持し、`updated` を更新します。既存ノートの識別条件は [出力と実行結果](../reference/output-and-results.md#ファイル名と既存ノートの識別)にまとめています。
+複数文書・比較も同じ指定を使えます。同じノートの更新では `noteId` と作成日時 `created` を保持し、`updated` を更新します。既存ノートの識別条件は [出力と実行結果](../reference/output-and-results.md#ファイル名と既存ノートの識別)にまとめています。
 
 ## 失敗や中断からやり直す
 

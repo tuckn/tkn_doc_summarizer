@@ -37,10 +37,10 @@
 | やりたいこと                            | 入力                                                  | 使うコマンド                               |
 | --------------------------------------- | ----------------------------------------------------- | ------------------------------------------ |
 | 1つの文書を要約する                     | UTF-8 のテキストファイル1件、または保存済み記事の URL | `summarize`                              |
-| 連続するページを1つの記事としてまとめる | ページ順に並べた2件以上の文書                         | `synthesize`（既定は `--mode series`） |
-| 独立した記事の共通点や違いを整理する    | 比較する2件以上の文書                                 | `synthesize --mode compare`              |
-| 同一話者の主張を論点別に整理する | 要約ノート2件以上の一覧ファイル | `synthesize --mode compare --comparison-profile claims-ja --sources-file FILE` |
-| 分割録音を1つの会話記録にする | 録音順に並べた文字起こし | `synthesize --summary-profile conversation-ja --sources-file FILE` |
+| 連続するページを1つの記事としてまとめる | ページ順に並べた2件以上の文書                         | `summarize`（既定は `--mode series`） |
+| 独立した記事の共通点や違いを整理する    | 比較する2件以上の文書                                 | `summarize --mode compare`              |
+| 同一話者の主張を論点別に整理する | 要約ノート2件以上の一覧ファイル | `summarize --mode compare --comparison-profile claims-ja --sources-file FILE` |
+| 分割録音を1つの会話記録にする | 録音順に並べた文字起こし | `summarize --summary-profile conversation-ja --sources-file FILE` |
 | 会議後の議事メモを作る | 文字起こしと実行ごとの補足 | `summarize --summary-profile meeting-minutes-ja --context "補足" SOURCE` |
 
 URL は、保存済み Markdown を探す検索キーです。
@@ -183,13 +183,13 @@ tkn-doc-summarizer validate "<summary-note>"
 | やりたいこと | コマンド |
 | --- | --- |
 | 保存済み記事を URL で要約 | `tkn-doc-summarizer summarize "https://example.com/article"` |
-| 連続ページを統合 | `tkn-doc-summarizer synthesize "<page-1>" "<page-2>"` |
-| 独立した記事を比較 | `tkn-doc-summarizer synthesize "<article-a>" "<article-b>" --mode compare` |
+| 連続ページを統合 | `tkn-doc-summarizer summarize "<page-1>" "<page-2>"` |
+| 独立した記事を比較 | `tkn-doc-summarizer summarize "<article-a>" "<article-b>" --mode compare` |
 | 英語版を作成 | `tkn-doc-summarizer summarize "<source-file>" --summary-profile default-en` |
-| 分割録音を1つの会話記録にする | `tkn-doc-summarizer synthesize --sources-file sources.txt --summary-profile conversation-ja --conversation-date 2026-10-17` |
+| 分割録音を1つの会話記録にする | `tkn-doc-summarizer summarize --sources-file sources.txt --summary-profile conversation-ja --conversation-date 2026-10-17` |
 
 URL は `source_roots` に保存済みの記事を探すための検索キーです。Web ページは取得しません。
-`synthesize` は入力順序を保持し、比較では出典 ID `S1`、`S2`…を割り当てます。
+`summarize` の既定モードは `series` です。入力1件なら単一文書を要約し、複数件なら入力順序を保持して統合します。`--mode compare` は2件以上を必要とし、出典 ID `S1`、`S2`…を割り当てます。
 
 `conversation-ja` は「会合・資料情報 → 短い概要 → 話題別の記録 → 約束・予定・願望 → 未確認事項・読み取り上の制約」を作ります。発言ごとにファイルID・ファイル内時刻・元の話者ラベルを残し、実名との対応を未確認／推定／明示確認で区別します。会話日は `--conversation-date YYYY-MM-DD` で指定し、省略時は未確認です。人物分析やプレゼント提案は含めません。使い方と検証範囲は [文字起こしから会話記録を作る](docs/guides/conversations.md) を参照してください。
 
@@ -205,7 +205,7 @@ uv run tkn-doc-summarizer summarize `
 
 実際のパス・補足に置き換えてください。出力は `C:\work\notes\conversations` 配下の年別フォルダーへ自動命名で保存され、実行結果の `path` で確認できます。`--summary-profile` にはフォルダーのパスではなく profile 名を指定します。
 
-`meeting-minutes-ja` は「概要（エグゼクティブ・サマリーの箇条書き）→ 会話で確認できた事実 → 認識差・未決事項 → RAID（Risk / Action / Issue / Decision）→ 次回確認事項」を作ります。発言・資料記載・ユーザー補足・解釈と、確定／暫定／要確認を区別し、Action の担当・期限が分からなければ要確認として残します。単一の文字起こしは `summarize`、複数録音は `synthesize --mode series` で使います。
+`meeting-minutes-ja` は「概要（エグゼクティブ・サマリーの箇条書き）→ 会話で確認できた事実 → 認識差・未決事項 → RAID（Risk / Action / Issue / Decision）→ 次回確認事項」を作ります。発言・資料記載・ユーザー補足・解釈と、確定／暫定／要確認を区別し、Action の担当・期限が分からなければ要確認として残します。単一の文字起こし・複数録音とも `summarize --mode series` で使います。
 
 ```shell
 tkn-doc-summarizer summarize "C:\path\to\transcript.md" --summary-profile meeting-minutes-ja --conversation-date 2026-10-15 --context "会社Aが会社Bへ質問し、認識を合わせる会議。途中で時間切れ。" --context "C:\path\to\meeting-context.md" --output "C:\path\to\meeting-minutes.md"
@@ -224,8 +224,8 @@ notes/summary-b.md
 同じ話者の要約群から主張を整理するには、次のコマンドを使います。
 
 ```shell
-tkn-doc-summarizer synthesize --sources-file sources.txt --mode compare --comparison-profile claims-ja --output "C:\path\to\permanent\speaker-claims.md" --dry-run
-tkn-doc-summarizer synthesize --sources-file sources.txt --mode compare --comparison-profile claims-ja --output "C:\path\to\permanent\speaker-claims.md"
+tkn-doc-summarizer summarize --sources-file sources.txt --mode compare --comparison-profile claims-ja --output "C:\path\to\permanent\speaker-claims.md" --dry-run
+tkn-doc-summarizer summarize --sources-file sources.txt --mode compare --comparison-profile claims-ja --output "C:\path\to\permanent\speaker-claims.md"
 ```
 
 `claims-ja` は話者の主張として記述し、繰り返される主張、論点別の主張と論拠、違い・留保、個別動画の主張を整理します。各項目のS番号から元の要約ノートへ直接移動でき、末尾に全出典と確認状態を表示します。元動画の再確認や主張の事実検証は行いません。抽出する話者・入力一覧の選定は利用者が行います。
@@ -244,8 +244,8 @@ URL 入力の Frontmatter、出典の順序、保存先の変更、再生成と�
 | ------------------------ | ------------------------------------------------- | -------------------------------------------- |
 | 使い方・版を確認         | `--help` / `--version`                        | [インストール](#インストールする)             |
 | 1文書を要約              | `summarize SOURCE`                              | [最初の実行](#最初の実行と結果確認)           |
-| 連続ページを統合         | `synthesize SOURCE SOURCE [...]`                | [連続ページ](docs/guides/operations.md#連続ページを統合する)      |
-| 独立した文書を比較       | `synthesize SOURCE SOURCE [...] --mode compare` | [記事の比較](docs/guides/operations.md#独立した記事を比較する)         |
+| 連続ページを統合         | `summarize SOURCE SOURCE [...]`                | [連続ページ](docs/guides/operations.md#連続ページを統合する)      |
+| 独立した文書を比較       | `summarize SOURCE SOURCE [...] --mode compare` | [記事の比較](docs/guides/operations.md#独立した記事を比較する)         |
 | 保存済みノートを検証     | `validate PATH`                                 | [ノートの検証](docs/guides/maintenance.md#保存済みノートを検証する) |
 | ユーザー設定を作成       | `config init`                                   | [設定ファイルの作成](#設定ファイルを作成する) |
 | 有効な設定と決定元を確認 | `config list`                                   | [設定](#設定)                                 |
@@ -257,7 +257,7 @@ URL 入力の Frontmatter、出典の順序、保存先の変更、再生成と�
 
 ### 共通オプションと書き込み範囲
 
-`summarize`、`synthesize`、`config list` の設定上書きはコマンド名の後ろに指定します。
+`summarize`、`config list` の設定上書きはコマンド名の後ろに指定します。
 `--source-root`、`--model`、`--config`、`--reports-root` などはその実行だけに適用されます。
 通常の生成・再利用・dry-run と各補助コマンドの書き込み範囲は [保存先、結果、対応範囲](docs/reference/output-and-results.md#書き込み範囲) の表を参照してください。
 
@@ -310,9 +310,9 @@ tkn-doc-summarizer --version
 - [保存先、結果、対応範囲](docs/reference/output-and-results.md)：実行結果とレポートの読み方。
 - [更新と開発](docs/guides/maintenance.md)：再インストール、検証、開発時の操作。
 - [設定例](src/doc_summarizer/resources/config.example.yaml)：`config init` が作成する全項目。
-- [日本語の要約指示](src/profiles/default-ja/prompt.md)／[英語の要約指示](src/profiles/default-en/prompt.md)：単一文書と連続ページの要約方針。
-- [日本語の比較指示](src/profiles/compare-ja/prompt.md)／[英語の比較指示](src/profiles/compare-en/prompt.md)：出典を付けた比較の方針。
-- [会話記録の指示](src/profiles/conversation-ja/prompt.md)／[議事メモの指示](src/profiles/meeting-minutes-ja/prompt.md)：文字起こしの記録方針。
+- [日本語の要約指示](src/profiles/summary/default-ja/prompt.md)／[英語の要約指示](src/profiles/summary/default-en/prompt.md)：単一文書と連続ページの要約方針。
+- [日本語の比較指示](src/profiles/comparison/compare-ja/prompt.md)／[英語の比較指示](src/profiles/comparison/compare-en/prompt.md)：出典を付けた比較の方針。
+- [会話記録の指示](src/profiles/summary/conversation-ja/prompt.md)／[議事メモの指示](src/profiles/summary/meeting-minutes-ja/prompt.md)：文字起こしの記録方針。
 - [CLI の定義](src/doc_summarizer/cli.py)：コマンドと引数。
 - [ノートの検証](src/doc_summarizer/validation.py)：保存済みノートの形式・出典の検査。
 - [テスト](tests/)：人工データによる動作確認。

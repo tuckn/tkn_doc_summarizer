@@ -15,8 +15,79 @@ def test_help_names_url_behavior(capsys: object) -> None:
     assert "does not fetch web pages" in parser.description
 
 
+def test_summarize_help_and_removed_synthesize(capsys: pytest.CaptureFixture[str]) -> None:
+    parser = build_parser()
+    assert "synthesize" not in parser.format_help()
+    with pytest.raises(SystemExit) as help_exit:
+        parser.parse_args(["summarize", "--help"])
+    assert help_exit.value.code == 0
+    help_text = capsys.readouterr().out
+    for option in (
+        "--mode", "--sources-file", "--comparison-profile", "--title",
+        "--extend-sources", "--conversation-date", "--context",
+    ):
+        assert option in help_text
+    with pytest.raises(SystemExit) as removed_exit:
+        parser.parse_args(["synthesize", "one.md", "two.md"])
+    assert removed_exit.value.code == 2
+    assert "invalid choice" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "inputs,message",
+    [
+        ([], "provide at least one SOURCE"),
+        (["--mode", "compare"], "provide at least one SOURCE"),
+        (["one.md", "--mode", "compare"], "at least two sources"),
+        (["one.md", "--title", "Title"], "--title requires multiple sources"),
+        (
+            ["one.md", "--mode", "compare", "--conversation-date", "2026-10-17"],
+            "--conversation-date requires --mode series",
+        ),
+    ],
+)
+def test_unified_cli_rejects_invalid_inputs_without_writes(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], inputs: list[str], message: str,
+) -> None:
+    assert main([
+        "summarize", *inputs, "--output-root", str(tmp_path / "out"),
+        "--reports-root", str(tmp_path / "reports"), "--dry-run",
+    ]) == 1
+    captured = capsys.readouterr()
+    assert not captured.out
+    assert message in captured.err
+    assert not (tmp_path / "out").exists() and not (tmp_path / "reports").exists()
+
+
+@pytest.mark.parametrize(
+    "profile", ["default-ja", "default-en", "conversation-ja", "meeting-minutes-ja"],
+)
+@pytest.mark.parametrize("count", [1, 2])
+def test_series_cli_shares_summary_profiles_for_single_and_multiple_inputs(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], profile: str, count: int,
+) -> None:
+    sources = [tmp_path / f"part-{index}.md" for index in range(count)]
+    for source in sources:
+        source.write_text("# Part\n\nContent.", encoding="utf-8")
+    listing = tmp_path / "sources.txt"
+    listing.write_text("\n".join(source.name for source in sources), encoding="utf-8")
+    extra = (
+        ["--conversation-date", "2026-10-17"]
+        if profile in ("conversation-ja", "meeting-minutes-ja") else []
+    )
+    assert main([
+        "summarize", "--sources-file", str(listing), "--summary-profile", profile,
+        *extra, "--output-root", str(tmp_path / "out"),
+        "--reports-root", str(tmp_path / "reports"), "--dry-run",
+    ]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["details"]["summary_profile"] == profile
+    assert payload["details"].get("source_count", 1) == count
+    assert not (tmp_path / "out").exists() and not (tmp_path / "reports").exists()
+
+
 def test_extend_sources_is_rejected_in_series_mode(capsys: object) -> None:
-    assert main(["synthesize", "--extend-sources", "--dry-run"]) == 1
+    assert main(["summarize", "--extend-sources", "--dry-run"]) == 1
     captured = capsys.readouterr()  # type: ignore[attr-defined]
     assert "--extend-sources requires --mode compare" in captured.err
     assert not captured.out
@@ -58,7 +129,7 @@ def test_cli_accepts_repeated_context_text_and_files(
     context.write_text("Reference text.", encoding="utf-8")
     args = (
         ["summarize", str(first)]
-        if mode == "summary" else ["synthesize", str(first), str(second)]
+        if mode == "summary" else ["summarize", str(first), str(second)]
     )
     if mode == "compare":
         args.extend(["--mode", "compare", "--comparison-profile", "claims-ja"])
@@ -112,7 +183,7 @@ def test_series_dry_run_outputs_resolved_sources_without_writes(
 
     code = main(
         [
-            "synthesize",
+            "summarize",
             str(first),
             str(second),
             "--title",
@@ -132,15 +203,26 @@ def test_series_dry_run_outputs_resolved_sources_without_writes(
     assert not (tmp_path / "output").exists()
 
 
-def test_series_requires_two_cli_sources(tmp_path: Path, capsys: object) -> None:
+@pytest.mark.parametrize("from_list", [False, True])
+def test_series_accepts_one_cli_source(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], from_list: bool
+) -> None:
     source = tmp_path / "one.md"
     source.write_text("# One\n\nFirst.", encoding="utf-8")
 
-    code = main(["synthesize", str(source), "--dry-run"])
+    listing = tmp_path / "sources.txt"
+    listing.write_text("one.md\n", encoding="utf-8")
+    inputs = ["--sources-file", str(listing)] if from_list else [str(source)]
+    code = main([
+        "summarize", *inputs, "--mode", "series",
+        "--output-root", str(tmp_path / "output"), "--dry-run",
+    ])
 
-    assert code == 1
-    captured = capsys.readouterr()  # type: ignore[attr-defined]
-    assert "at least two sources" in captured.err
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["source_path"] == str(source)
+    assert "synthesis_mode" not in payload["details"]
+    assert not (tmp_path / "output").exists()
 
 
 def test_compare_dry_run_reports_compare_profile(tmp_path: Path, capsys: object) -> None:
@@ -151,7 +233,7 @@ def test_compare_dry_run_reports_compare_profile(tmp_path: Path, capsys: object)
 
     code = main(
         [
-            "synthesize",
+            "summarize",
             str(first),
             str(second),
             "--mode",
@@ -181,7 +263,7 @@ def test_claims_list_dry_run_uses_selected_profile_without_writes(
     listing.write_text("one.md\ntwo.md\n", encoding="utf-8")
     before = sorted(tmp_path.rglob("*"))
     code = main([
-        "synthesize", "--sources-file", str(listing), "--mode", "compare",
+        "summarize", "--sources-file", str(listing), "--mode", "compare",
         "--comparison-profile", "claims-ja", "--output-root", str(tmp_path / "output"),
         "--reports-root", str(tmp_path / "reports"), "--dry-run",
     ])
@@ -201,7 +283,7 @@ def test_rejects_ambiguous_list_or_profile_in_series(
 ) -> None:
     listing = tmp_path / "sources.txt"
     listing.write_text("one.md\ntwo.md\n", encoding="utf-8")
-    code = main(["synthesize", "--sources-file", str(listing), "--dry-run", *extra])
+    code = main(["summarize", "--sources-file", str(listing), "--dry-run", *extra])
     assert code == 1
     captured = capsys.readouterr()  # type: ignore[attr-defined]
     assert not captured.out
@@ -211,7 +293,7 @@ def test_list_duplicate_aliases_are_rejected(tmp_path: Path, capsys: object) -> 
     (tmp_path / "one.md").write_text("# One\n\nClaim.", encoding="utf-8")
     listing = tmp_path / "sources.txt"
     listing.write_text("one.md\n./one.md\n", encoding="utf-8")
-    code = main(["synthesize", "--sources-file", str(listing), "--dry-run"])
+    code = main(["summarize", "--sources-file", str(listing), "--dry-run"])
     assert code == 1
     captured = capsys.readouterr()  # type: ignore[attr-defined]
     assert "same local source" in captured.err
@@ -255,12 +337,12 @@ def test_config_list_json_reports_summary_profile_resources(
     payload = json.loads(capsys.readouterr().out)  # type: ignore[attr-defined]
     profile = payload["values"]["summary_profile"]
     assert profile["name"] == "default-ja"
-    assert profile["source"] == "package:profiles/default-ja"
+    assert profile["source"] == "package:profiles/summary/default-ja"
     assert profile["output_schema"]["source"].endswith("output.schema.json")
     assert profile["template"]["source"].endswith("template.md")
     comparison = payload["values"]["comparison_profile"]
     assert comparison["name"] == "compare-ja"
-    assert comparison["source"] == "package:profiles/compare-ja"
+    assert comparison["source"] == "package:profiles/comparison/compare-ja"
     assert payload["values"]["source_path_format"] == "native"
     assert payload["value_sources"]["source_path_format"] == "built-in defaults"
 

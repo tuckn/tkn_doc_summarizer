@@ -30,9 +30,10 @@
 
 ## Unreleased
 
-- 要約・比較の同梱リソースを `src\profiles\<profile名>\` に集約しました。比較用も CLI の名前に合わせて `compare-ja`／`compare-en` 配下に置きます。CLI の profile 名、リソース内容・ID・ハッシュ、既存ノートの再利用条件は変えず、リソース参照は `package:profiles/...` へ更新しました。
+- 生成コマンドを `summarize` に統一し、`synthesize` は廃止しました。既定の `--mode series` は1件なら単一要約、複数件なら入力順の統合要約を生成し、`--mode compare` は2件以上を比較します。位置引数と `--sources-file FILE` のどちらでも入力でき、実行レポートの `command` も `summarize` になります。既存のノート形式と再利用条件は維持します。
+- 同梱リソースを `src\profiles\summary\<profile名>\` と `src\profiles\comparison\<profile名>\` に整理しました。要約用は単一・複数入力で共用します。CLI の profile 名、リソース内容・ID・ハッシュは変えず、リソース参照は `package:profiles/summary/...` / `package:profiles/comparison/...` へ更新しました。
 - README に、文字起こし1件を `conversation-ja` と補足 context で要約する、パス・内容を匿名化した PowerShell の実行例を追加しました。
-- `meeting-minutes-ja` を追加しました。単一文字起こしと `synthesize --mode series` から、概要（箇条書き）・会話で確認できた事実・認識差／未決事項・RAID・次回確認事項を生成します。根拠種別と確度、担当・期限を区別する専用プロンプト・JSON スキーマ・テンプレートを持ち、会話日も指定できます。ノート形式は単一が12.0、複数が13.0です。
+- `meeting-minutes-ja` を追加しました。単一・複数文字起こしを指定する `summarize --mode series` から、概要（箇条書き）・会話で確認できた事実・認識差／未決事項・RAID・次回確認事項を生成します。根拠種別と確度、担当・期限を区別する専用プロンプト・JSON スキーマ・テンプレートを持ち、会話日も指定できます。ノート形式は単一が12.0、複数が13.0です。
 - 全要約 profile と比較に、実行ごとの `--context TEXT_OR_FILE` を追加しました。テキストまたは UTF-8 ファイルのパスを複数指定でき、指定順に空行で結合します。パス形式なのに存在しない場合はエラーです。補足を原文と区別して生成・dry-run に渡し、補足本文内の参照パスの再帰的な読込や PPTX／DOCX の抽出は行いません。従来の `--context-file FILE` は廃止し、`--context FILE` に集約しました。
 - context のハッシュをノートと実行結果に記録し、補足の追加・変更・削除にも明示的な `--overwrite` を要求します。補足全文は Frontmatter・実行レポートへ保存せず、context なしの既存ノートの検証・再利用を維持します。
 - `config show` を `config list` に変更しました。旧コマンドは受け付けません。既存の手順・スクリプトは `config list` に変更してください。

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -111,6 +112,7 @@ def test_create_validate_and_idempotent_rerun(tmp_path: Path) -> None:
     first = summarize(str(source), _config(tmp_path), provider=provider)
     assert first.status == "created"
     assert first.report_path is not None
+    assert json.loads(first.report_path.read_text(encoding="utf-8"))["command"] == "summarize"
     assert not validate_summary(first.path)
     assert provider.calls == 1
     text = first.path.read_text(encoding="utf-8")
@@ -159,6 +161,8 @@ def test_create_validate_and_idempotent_series_summary(tmp_path: Path) -> None:
     )
 
     assert first.status == "created"
+    assert first.report_path is not None
+    assert json.loads(first.report_path.read_text(encoding="utf-8"))["command"] == "summarize"
     assert first.source_path == sources[0]
     assert first.details["source_count"] == 2
     assert not validate_summary(first.path)

@@ -121,7 +121,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="tkn-doc-summarizer",
         description=(
-            "Create a Markdown summary from a local document. URL inputs locate an "
+            "Create a Markdown summary or comparison from local documents. URL inputs locate an "
             "already-clipped Markdown file; the CLI does not fetch web pages."
         ),
     )
@@ -130,11 +130,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     summary_parser = commands.add_parser(
         "summarize",
-        help="generate one summary note from a file path or clipped URL",
+        help="generate one summary or comparison note from one or more local sources",
     )
     summary_parser.add_argument(
-        "source",
-        help="local file path or URL stored in clipped Frontmatter",
+        "sources",
+        nargs="*",
+        metavar="SOURCE",
+        help="ordered local file paths or clipped URLs; compare requires at least two",
     )
     summary_parser.add_argument(
         "--output",
@@ -158,61 +160,33 @@ def build_parser() -> argparse.ArgumentParser:
     _context_options(summary_parser)
     _common(summary_parser)
 
-    synthesize_parser = commands.add_parser(
-        "synthesize",
-        help="generate one series or comparison note from multiple ordered sources",
-    )
-    synthesize_parser.add_argument(
-        "sources",
-        nargs="*",
-        metavar="SOURCE",
-        help="ordered local file path or URL stored in clipped Frontmatter; requires at least two",
-    )
-    synthesize_parser.add_argument(
+    summary_parser.add_argument(
         "--sources-file",
         type=Path,
         help="UTF-8 list: one unquoted path/URL per line; relative files use the list directory",
     )
-    synthesize_parser.add_argument(
+    summary_parser.add_argument(
         "--comparison-profile",
         choices=BUILT_IN_COMPARISON_PROFILES,
         help="compare mode profile; claims-ja organizes attributed claims with source links",
     )
-    synthesize_parser.add_argument(
+    summary_parser.add_argument(
         "--mode",
         choices=("series", "compare"),
         default="series",
-        help="series joins pages or conversation-ja recordings; compare analyzes separate sources",
+        help=(
+            "series summarizes one source or joins ordered sources; "
+            "compare analyzes separate sources"
+        ),
     )
-    synthesize_parser.add_argument(
+    summary_parser.add_argument(
         "--title",
-        help="explicit title override; otherwise AI derives it from the complete synthesis",
+        help="title override for multiple sources; otherwise AI derives their combined title",
     )
-    synthesize_parser.add_argument(
-        "--output",
-        type=Path,
-        help="exact output .md path; otherwise output_root and automatic naming are used",
-    )
-    synthesize_parser.add_argument(
-        "--overwrite",
-        action="store_true",
-        help="regenerate and replace the matching synthesis note, including reviewed edits",
-    )
-    synthesize_parser.add_argument(
+    summary_parser.add_argument(
         "--extend-sources",
         action="store_true",
         help="compare only: allow added sources for an existing --output; requires --overwrite",
-    )
-    synthesize_parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="resolve the ordered sources and target without AI execution or writes",
-    )
-    _common(synthesize_parser)
-    _context_options(synthesize_parser)
-    synthesize_parser.add_argument(
-        "--conversation-date",
-        help="conversation-ja or meeting-minutes-ja meeting date, YYYY-MM-DD; unknown if omitted",
     )
 
     validate_parser = commands.add_parser("validate", help="validate a generated summary note")
@@ -468,30 +442,6 @@ def main(argv: list[str] | None = None) -> int:
                 print("\n".join(config_lines(listing_result)))
             return 0
         if args.command == "summarize":
-            result = summarize(
-                args.source,
-                config,
-                explicit_output=args.output,
-                overwrite=args.overwrite,
-                dry_run=args.dry_run,
-                conversation_date=args.conversation_date,
-                context=args.context,
-            )
-            if result.status == "planned":
-                logger.info("Dry run completed without writes")
-            elif result.status == "unchanged":
-                log_success(logger, "Summary is already current")
-            else:
-                log_success(logger, "Summary completed successfully")
-            print(
-                json.dumps(
-                    result.model_dump(mode="json"),
-                    ensure_ascii=False,
-                    default=_json_default,
-                )
-            )
-            return 0
-        if args.command == "synthesize":
             if args.conversation_date is not None and args.mode != "series":
                 raise ValueError("--conversation-date requires --mode series")
             if args.extend_sources and args.mode != "compare":
@@ -501,12 +451,26 @@ def main(argv: list[str] | None = None) -> int:
             if args.comparison_profile is not None and args.mode != "compare":
                 raise ValueError("--comparison-profile requires --mode compare")
             sources = read_source_list(args.sources_file) if args.sources_file else args.sources
+            if not sources:
+                raise ValueError("provide at least one SOURCE or --sources-file")
             if args.mode == "compare":
                 result = synthesize_compare(
                     sources, config, title=args.title, explicit_output=args.output,
                     overwrite=args.overwrite, dry_run=args.dry_run,
                     comparison_profile=args.comparison_profile,
                     extend_sources=args.extend_sources,
+                    context=args.context,
+                )
+            elif len(sources) == 1:
+                if args.title is not None:
+                    raise ValueError("--title requires multiple sources")
+                result = summarize(
+                    sources[0],
+                    config,
+                    explicit_output=args.output,
+                    overwrite=args.overwrite,
+                    dry_run=args.dry_run,
+                    conversation_date=args.conversation_date,
                     context=args.context,
                 )
             else:
@@ -523,9 +487,9 @@ def main(argv: list[str] | None = None) -> int:
             if result.status == "planned":
                 logger.info("Dry run completed without writes")
             elif result.status == "unchanged":
-                log_success(logger, "%s synthesis is already current", args.mode.capitalize())
+                log_success(logger, "Summary is already current")
             else:
-                log_success(logger, "%s synthesis completed successfully", args.mode.capitalize())
+                log_success(logger, "Summary completed successfully")
             print(
                 json.dumps(
                     result.model_dump(mode="json"),

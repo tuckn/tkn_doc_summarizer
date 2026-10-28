@@ -31,39 +31,40 @@ def _without_descriptions(value: object) -> object:
     return deepcopy(value)
 
 
-def test_all_profiles_share_one_flat_resource_package() -> None:
+@pytest.mark.parametrize("kind", ["summary", "comparison"])
+def test_profiles_are_packaged_by_kind(kind: str) -> None:
     summary_names = set(BUILT_IN_SUMMARY_PROFILES)
     comparison_names = set(BUILT_IN_COMPARISON_PROFILES)
     assert summary_names.isdisjoint(comparison_names)
-    root = files("profiles")
+    root = files("profiles").joinpath(kind)
     resource_names = {
         entry.name for entry in root.iterdir()
         if entry.is_dir() and entry.joinpath("prompt.md").is_file()
     }
-    assert resource_names == summary_names | comparison_names
+    assert resource_names == (summary_names if kind == "summary" else comparison_names)
     for name in sorted(resource_names):
         profile = (
             load_summary_profile(name)
             if name in summary_names else load_comparison_profile(profile_name=name)
         )
-        assert profile.source == f"package:profiles/{name}"
+        assert profile.source == f"package:profiles/{kind}/{name}"
         for filename, resource in (
             ("prompt.md", profile.prompt),
             ("output.schema.json", profile.schema),
             ("template.md", profile.template),
         ):
             assert root.joinpath(name, filename).is_file()
-            assert resource.source == f"package:profiles/{name}/{filename}"
+            assert resource.source == f"package:profiles/{kind}/{name}/{filename}"
 
 
 def test_default_japanese_summary_profile_is_packaged_and_coherent() -> None:
     profile = load_summary_profile()
 
     assert profile.name == "default-ja"
-    assert profile.source == "package:profiles/default-ja"
-    assert profile.prompt.source == "package:profiles/default-ja/prompt.md"
-    assert profile.schema.source == "package:profiles/default-ja/output.schema.json"
-    assert profile.template.source == "package:profiles/default-ja/template.md"
+    assert profile.source == "package:profiles/summary/default-ja"
+    assert profile.prompt.source == "package:profiles/summary/default-ja/prompt.md"
+    assert profile.schema.source == "package:profiles/summary/default-ja/output.schema.json"
+    assert profile.template.source == "package:profiles/summary/default-ja/template.md"
     assert "Japanese paragraph" in profile.schema.value["properties"]["summary"]["description"]
     assert "## 1. 要約" in profile.template.body
     assert _without_descriptions(profile.schema.value) == _without_descriptions(

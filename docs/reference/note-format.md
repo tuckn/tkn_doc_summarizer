@@ -4,14 +4,14 @@
 
 | コマンド | 形式 | `schemaVersion` | 出典 |
 | --- | --- | --- | --- |
-| `summarize` | 単一文書 | `"8.0"` | `source` と `sourceSha256` |
-| `synthesize`（既定） | 連続ページ | `"9.0"` | 順序付きの `sources` |
-| `synthesize --mode compare` | 比較 | `"7.0"` | 出典 ID 付きの `sources` |
+| `summarize SOURCE` | 単一文書 | `"8.0"` | `source` と `sourceSha256` |
+| `summarize SOURCE SOURCE [...]`（既定の `series`） | 連続ページ | `"9.0"` | 順序付きの `sources` |
+| `summarize --mode compare` | 比較 | `"7.0"` | 出典 ID 付きの `sources` |
 | 同上 + `--comparison-profile claims-ja` | 話者の主張整理 | `"7.0"` | 各項目の直接リンクと `sources` |
 | `summarize --summary-profile conversation-ja` | 単一録音の会話記録 | `"10.0"` | `S1` と元ファイル内時刻・話者ラベル |
-| `synthesize --summary-profile conversation-ja` | 複数録音を統合した会話記録 | `"11.0"` | 順序付きの `sources` と元ファイル内時刻・話者ラベル |
+| `summarize --summary-profile conversation-ja`（複数入力） | 複数録音を統合した会話記録 | `"11.0"` | 順序付きの `sources` と元ファイル内時刻・話者ラベル |
 | `summarize --summary-profile meeting-minutes-ja` | 会議後の議事メモ | `"12.0"` | `S1` の発言・資料記載と補足・解釈の区別 |
-| `synthesize --summary-profile meeting-minutes-ja` | 複数入力を統合した議事メモ | `"13.0"` | 順序付きの `sources` と各項目の S番号 |
+| `summarize --summary-profile meeting-minutes-ja`（複数入力） | 複数入力を統合した議事メモ | `"13.0"` | 順序付きの `sources` と各項目の S番号 |
 
 版番号は数値ではなく文字列です。`validate` は `schemaVersion` 2.0〜13.0 を各版の規則で検証します。
 

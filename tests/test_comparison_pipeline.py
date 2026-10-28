@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
@@ -109,6 +110,8 @@ def test_create_validate_and_idempotent_comparison(tmp_path: Path) -> None:
     )
 
     assert first.status == "created"
+    assert first.report_path is not None
+    assert json.loads(first.report_path.read_text(encoding="utf-8"))["command"] == "summarize"
     assert not validate_summary(first.path)
     metadata, _ = split_frontmatter(first.path.read_text(encoding="utf-8"))
     assert metadata["schemaVersion"] == "7.0"
@@ -143,6 +146,10 @@ def test_comparison_rejects_unknown_generated_source_id(tmp_path: Path) -> None:
             _config(tmp_path),
             provider=FakeComparisonProvider(invalid_source=True),
         )
+    report, = (tmp_path / "reports").glob("*.json")
+    payload = json.loads(report.read_text(encoding="utf-8"))
+    assert payload["command"] == "summarize"
+    assert payload["status"] == "failure"
 
 
 def test_comparison_uses_generated_title_when_title_is_omitted(tmp_path: Path) -> None:

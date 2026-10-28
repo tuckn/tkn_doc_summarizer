@@ -73,7 +73,7 @@ class SummaryProfile:
 def _profile_resource_name(profile_name: str, filename: str) -> str:
     if _PROFILE_NAME.fullmatch(profile_name) is None:
         raise RuntimeError(f"invalid built-in summary profile name: {profile_name}")
-    return f"{profile_name}/{filename}"
+    return f"summary/{profile_name}/{filename}"
 
 
 def _resource_bytes(resource_name: str, label: str) -> bytes:
@@ -229,7 +229,7 @@ def load_summary_profile(
     active_prompt = prompt or _load_profile_prompt(profile_name)
     schema = load_summary_schema(profile_name)
     template = load_summary_template(profile_name)
-    source = f"package:profiles/{profile_name}"
+    source = f"package:profiles/summary/{profile_name}"
     identity = json.dumps(
         {
             "name": profile_name,

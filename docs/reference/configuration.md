@@ -46,7 +46,7 @@ generationResolved.will_call_provider=false
 | `output_root` | `~/.tkn/doc_summarizer/data/summaries` | 自動命名するノートの保存先と既存ノートの検索先 |
 | `reports_root` | `~/.tkn/doc_summarizer/state/reports` | JSON 実行レポートの保存先 |
 | `max_input_bytes` | `2000000` | 1ソースファイル、および結合後 context それぞれの上限バイト数。1以上 |
-| `max_total_input_bytes` | `8000000` | 1回の `synthesize` のソース＋context 合計入力上限バイト数。1以上 |
+| `max_total_input_bytes` | `8000000` | 複数文書を渡す1回の `summarize` のソース＋context 合計入力上限バイト数。1以上 |
 | `source_path_format` | `native` | 出典参照の形式。`native` または `file-uri` |
 | `generation.summary_profile` | `default-ja` | 出力形式。`default-ja` / `default-en` / `conversation-ja` / `meeting-minutes-ja` |
 | `generation.active_profile` | `codex` | アプリ内の生成プロファイル |
@@ -115,7 +115,7 @@ tkn-doc-summarizer summarize "<source-file>" --profile claude --dry-run
 ```
 
 `--model` と `--provider-timeout-seconds` はその実行の接続設定を上書きします。待機上限は共有設定を継承します。Bridge の組み込み値は300秒、指定できる範囲は0より大きく86400以下です。存在しないプロファイルや不正な値で、別の接続先へ自動で切り替えることはありません。
-`summarize`、`synthesize`、`config list` のオプションはコマンド名の後ろに指定します。`--source-root` は複数回指定でき、設定ファイルの検索先一覧を置き換えます。`--model`、`--config`、`--reports-root`、入力サイズやタイムアウトの指定もその実行だけに適用されます。
+`summarize`、`config list` のオプションはコマンド名の後ろに指定します。`--source-root` は複数回指定でき、設定ファイルの検索先一覧を置き換えます。`--model`、`--config`、`--reports-root`、入力サイズやタイムアウトの指定もその実行だけに適用されます。
 
 旧形式のトップレベル `summary_profile`、`model`、`provider: codex`、`codex_executable`、`codex_timeout_seconds` は読み込み時に変換します。同じファイルで旧形式と `generation` を混在させるとエラーです。旧 `provider` / `codex_executable` は Codex 接続に限定されます。旧 `--codex-executable` / `--codex-timeout-seconds` も互換入力として受け付けます。設定ファイルを自動で書き換えません。
 
@@ -125,11 +125,11 @@ tkn-doc-summarizer summarize "<source-file>" --profile claude --dry-run
 
 ## カスタム生成指示
 
-`conversation-ja` は会話の文字起こし用です。`summarize` と `synthesize --mode series` で使い、会話日は実行時の `--conversation-date YYYY-MM-DD` で指定します。設定ファイルに会話日のキーは追加しません。出典時刻・話者の不確かさ・記録の形式は [会話記録のガイド](../guides/conversations.md) を参照してください。比較に切り替える場合は `--summary-profile default-ja` または `default-en` を明示します。
+`conversation-ja` は会話の文字起こし用です。`summarize` の既定の `series` モードで単一・複数入力に使い、会話日は実行時の `--conversation-date YYYY-MM-DD` で指定します。設定ファイルに会話日のキーは追加しません。出典時刻・話者の不確かさ・記録の形式は [会話記録のガイド](../guides/conversations.md) を参照してください。比較に切り替える場合は `--summary-profile default-ja` または `default-en` を明示します。
 
-`meeting-minutes-ja` は会議後の議事メモ用で、概要・事実・認識差／未決事項・RAID・次回確認事項の5節を出力します。同じく `summarize` と `series` に対応し、`--conversation-date` を使えます。独立した JSON スキーマとテンプレートを持ち、結論・専門用語は要求しません。比較モードでは使いません。
+`meeting-minutes-ja` は会議後の議事メモ用で、概要・事実・認識差／未決事項・RAID・次回確認事項の5節を出力します。同じく `summarize` の `series` モードで単一・複数入力に対応し、`--conversation-date` を使えます。独立した JSON スキーマとテンプレートを持ち、結論・専門用語は要求しません。比較モードでは使いません。
 
-比較用の組み込みprofileは、`synthesize --mode compare --comparison-profile NAME` で選べます。`compare-ja`・`compare-en` は記事比較、`claims-ja` は同一話者の主張整理です。省略時は `generation.summary_profile` に対応する従来の比較profileを使います。このオプションは実行時のみで、設定ファイルに新しいキーを追加しません。
+比較用の組み込みprofileは、`summarize --mode compare --comparison-profile NAME` で選べます。`compare-ja`・`compare-en` は記事比較、`claims-ja` は同一話者の主張整理です。省略時は `generation.summary_profile` の `default-ja` / `default-en` に対応する `compare-ja` / `compare-en` を使います。このオプションは実行時のみで、設定ファイルに新しいキーを追加しません。
 
 ```shell
 tkn-doc-summarizer prompt init my-summary.md
@@ -139,22 +139,22 @@ tkn-doc-summarizer prompt init my-summary.md
 
 作成した UTF-8 Markdown の Frontmatter は `type: prompt`、UUID の `id`、文字列の `version` を保持し、本文の指示を編集します。設定ファイルの一部として `summary_prompt: my-summary.md` を指定するか、その実行だけ `--summary-prompt my-summary.md` を使います。別のフォルダなら絶対パスを指定し、相対フォルダを含むパスは指定しません。
 
-カスタム指示は `summarize` と `series` で使用できます。選択したプロファイルの生成指示のみを置換し、JSON スキーマと Markdown テンプレートは維持します。比較モードはカスタム指示を受け付けません。入力本文を命令として扱わないための区切りはアプリが付けます。
+カスタム指示は `summarize` の `series` モードで単一・複数入力に使用できます。選択したプロファイルの生成指示のみを置換し、JSON スキーマと Markdown テンプレートは維持します。比較モードはカスタム指示を受け付けません。入力本文を命令として扱わないための区切りはアプリが付けます。
 
 ## 実行ごとの補足 context
 
-`summarize` と `synthesize`（`series`／`compare`）で、全 profile に補足を渡せます。接続先を選ぶ `--profile` や、固定の生成指示を置き換える `--summary-prompt` とは独立しています。
+`summarize`（`series`／`compare`）で、全 profile に補足を渡せます。接続先を選ぶ `--profile` や、固定の生成指示を置き換える `--summary-prompt` とは独立しています。
 
 ```shell
 tkn-doc-summarizer summarize "<source-file>" --context "略称ABCは今回の製品名。費用と期限に注目。"
-tkn-doc-summarizer synthesize --sources-file sources.txt --summary-profile meeting-minutes-ja --context "会議の背景。" --context "C:\path\to\context.md" --context "期限は未確定。"
-tkn-doc-summarizer synthesize "<article-a>" "<article-b>" --mode compare --context "両記事の前提条件の違いを重視。"
+tkn-doc-summarizer summarize --sources-file sources.txt --summary-profile meeting-minutes-ja --context "会議の背景。" --context "C:\path\to\context.md" --context "期限は未確定。"
+tkn-doc-summarizer summarize "<article-a>" "<article-b>" --mode compare --context "両記事の前提条件の違いを重視。"
 ```
 
 - `--context TEXT_OR_FILE` は、補足テキストまたは UTF-8 ファイルのパスです。複数回指定でき、テキストとファイルを自由に混在させられます。長い補足・テキスト化した参照資料・別のツールの要約はファイルにまとめられます。Frontmatter や所定の見出しは不要です。
 - 既存のファイルは拡張子なしでも読み込みます。絶対パス、`.\`・`..\`・`~\` で始まるパス、空白のない `context.md` のような拡張子付きの名前や `notes\context` のような相対パスもファイル指定と判定し、存在しなければエラーです。空白を含む相対パスを明確に指定するには `.\meeting context.md` のように書いてください。通常の文章、複数行のテキスト、`https://...` 等の URL は文字列として扱います。
 - 各 `--context` を指定順に読み込み、空行で結合します。改行を LF に統一し、各入力の前後の空白を除きます。ファイルは UTF-8（BOM 可）。相対パスは実行時の作業フォルダを基準とし、ファイル自体は変更しません。同じ指定を繰り返した場合も順序を保ち、重複除去はしません。
-- 明示した補足が空、ファイルが読めない、UTF-8 でない、サイズ上限を超える場合は生成前に停止します。ファイルの読込サイズと結合後テキストはそれぞれ `max_input_bytes` 以内、`synthesize` はソースと context の合計も `max_total_input_bytes` 以内である必要があります。
+- 明示した補足が空、ファイルが読めない、UTF-8 でない、サイズ上限を超える場合は生成前に停止します。ファイルの読込サイズと結合後テキストはそれぞれ `max_input_bytes` 以内、複数文書の要約・比較はソースと context の合計も `max_total_input_bytes` 以内である必要があります。
 - 背景・用語・名前の表記・注目点の有力な手掛かりとして使います。ただし、会議での発言や独立確認された事実に格上げせず、原文との矛盾は留保として残すよう指示します。比較でも context だけの主張を S番号の根拠にしません。
 - 読み込んだ context 本文中のパス・URL を再帰的に開くことはありません。URL の取得や PPTX／DOCX／PDF 等の抽出も行わず、必要な本文をテキスト化して含めます。補足の中でも「ユーザーの手掛かり」「参照資料の抜粋」「別ツールの要約」等を区別して記述してください。
 

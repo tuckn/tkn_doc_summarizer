@@ -65,7 +65,7 @@ class ComparisonProfile:
 def _resource_name(profile_name: str, filename: str) -> str:
     if _PROFILE_NAME.fullmatch(profile_name) is None:
         raise RuntimeError(f"invalid built-in comparison profile name: {profile_name}")
-    return f"{profile_name}/{filename}"
+    return f"comparison/{profile_name}/{filename}"
 
 
 def _resource_bytes(profile_name: str, filename: str, label: str) -> tuple[bytes, str]:
@@ -176,7 +176,7 @@ def load_comparison_profile(
     schema = _load_schema(profile_name)
     template = _load_template(profile_name)
     name = profile_name
-    source = f"package:profiles/{profile_name}"
+    source = f"package:profiles/comparison/{profile_name}"
     identity = json.dumps(
         {
             "name": name,

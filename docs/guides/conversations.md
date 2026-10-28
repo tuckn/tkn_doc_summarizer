@@ -17,8 +17,8 @@ transcripts/recording-4.md
 当時メモや事前の話題案は、この録音一覧に混ぜず、`--context` へテキストまたは UTF-8 ファイルのパスを指定して補足として渡せます。複数指定も可能です。補足があるだけで人物同定を確定扱いにはしません。
 
 ```shell
-tkn-doc-summarizer synthesize --sources-file sources.txt --mode series --summary-profile conversation-ja --conversation-date 2026-10-17 --output "C:\path\to\conversation.md" --dry-run
-tkn-doc-summarizer synthesize --sources-file sources.txt --mode series --summary-profile conversation-ja --conversation-date 2026-10-17 --output "C:\path\to\conversation.md"
+tkn-doc-summarizer summarize --sources-file sources.txt --mode series --summary-profile conversation-ja --conversation-date 2026-10-17 --output "C:\path\to\conversation.md" --dry-run
+tkn-doc-summarizer summarize --sources-file sources.txt --mode series --summary-profile conversation-ja --conversation-date 2026-10-17 --output "C:\path\to\conversation.md"
 ```
 
 `--dry-run` は外部生成や書き込みを行いません。通常実行は入力本文を選択した Bridge 接続先に渡します。全文を一度に渡す方式なので、入力上限内でも生成成功や網羅性は保証されません。
@@ -86,7 +86,7 @@ tkn-doc-summarizer validate "C:\path\to\conversation.md"
 
 ```shell
 tkn-doc-summarizer summarize "C:\path\to\transcript.md" --summary-profile meeting-minutes-ja --conversation-date 2026-10-15 --context "会社Aから会社Bへの質問と認識合わせ。時間切れで終了。" --context "C:\path\to\context.md" --output "C:\path\to\meeting-minutes.md"
-tkn-doc-summarizer synthesize --sources-file sources.txt --summary-profile meeting-minutes-ja --conversation-date 2026-10-15 --context "C:\path\to\context.md" --dry-run
+tkn-doc-summarizer summarize --sources-file sources.txt --summary-profile meeting-minutes-ja --conversation-date 2026-10-15 --context "C:\path\to\context.md" --dry-run
 ```
 
 出力は、概要（エグゼクティブ・サマリーの箇条書き）、会話で確認できた事実、認識差・未決事項、RAID（Risk / Action / Issue / Decision）、次回確認事項の5節です。概要には会話日・入力一覧・読み取り上の制約も併記します。会話日を省略すると未確認となります。

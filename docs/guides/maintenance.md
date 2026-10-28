@@ -59,7 +59,7 @@ uv tool install -e . --reinstall
 
 ## 同梱の要約プロファイルを変更する
 
-生成指示、JSON 出力形式、Markdown テンプレートは1組のリソースです。要約・比較とも `src\profiles\<profile名>\` にまとめています。
+生成指示、JSON 出力形式、Markdown テンプレートは1組のリソースです。単一文書と連続文書が共用する要約用は `src\profiles\summary\<profile名>\`、比較用は `src\profiles\comparison\<profile名>\` にまとめています。
 
 | profile 名 | 用途 |
 | --- | --- |
@@ -69,7 +69,9 @@ uv tool install -e . --reinstall
 | `compare-ja` / `compare-en` | 独立した文書の日本語／英語比較 |
 | `claims-ja` | 同一話者の主張整理 |
 
-`profiles` は配布パッケージにも同梱し、実行時は `importlib.resources` から読み込みます。`config list` のリソース参照は `package:profiles/<profile名>/...` です。CLI の profile 名・選択方法は変わりません。
+`profiles` は配布パッケージにも同梱し、実行時は `importlib.resources` から読み込みます。`config list` のリソース参照は `package:profiles/summary/<profile名>/...` または `package:profiles/comparison/<profile名>/...` です。CLI にはフォルダパスではなく profile 名を指定します。
+
+`summarize` の既定の `series` モードは `summary` 配下を使い、入力1件なら単一要約、複数件なら統合要約を生成します。`--mode compare` は `comparison` 配下を使い、2件以上が必要です。要約用・比較用の profile は相互に交換できません。比較用を省略すると、`default-ja` / `default-en` の指定に応じて `compare-ja` / `compare-en` を選びます。
 
 | ファイル | 担当 |
 | --- | --- |

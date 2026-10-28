@@ -129,7 +129,7 @@ def comparison_provider_for_config(
 ) -> ComparisonProvider:
     if config.summary_profile in ("conversation-ja", "meeting-minutes-ja"):
         raise ValueError(
-            f"{config.summary_profile} requires summarize or synthesize --mode series"
+            f"{config.summary_profile} requires summarize --mode series"
         )
     if config.summary_prompt is not None:
         raise ValueError("--summary-prompt is not supported with --mode compare")
@@ -956,7 +956,7 @@ def synthesize_series(
             status="failure",
             error=str(exc),
             provider_error=exc.error_details if isinstance(exc, ProviderExecutionError) else None,
-            command="synthesize",
+            command="summarize",
         )
         raise RuntimeError(f"{exc}; report={report}") from exc
     if dry_run:
@@ -966,7 +966,7 @@ def synthesize_series(
         started_at=started_at,
         status="success",
         result=result,
-        command="synthesize",
+        command="summarize",
     )
     return result.model_copy(update={"report_path": report})
 
@@ -1403,7 +1403,7 @@ def synthesize_compare(
             status="failure",
             error=str(exc),
             provider_error=exc.error_details if isinstance(exc, ProviderExecutionError) else None,
-            command="synthesize",
+            command="summarize",
         )
         raise RuntimeError(f"{exc}; report={report}") from exc
     if dry_run:
@@ -1413,6 +1413,6 @@ def synthesize_compare(
         started_at=started_at,
         status="success",
         result=result,
-        command="synthesize",
+        command="summarize",
     )
     return result.model_copy(update={"report_path": report})
