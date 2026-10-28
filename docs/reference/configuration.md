@@ -123,7 +123,9 @@ generation:
         comparison_profile: claims-ja
 ```
 
-`claude-default` は Bridge 側に定義してから使います。モデル・認証・実行ファイル・`local_only` は [Bridge の設定仕様](https://github.com/tuckn/tkn_genai_bridge/blob/9cf534e47159901c3bb05bb802695fad746cc338/docs/reference/configuration.md)に従います。Bridge は作業フォルダの `./.tkn/config.yaml` を読みません。
+`claude-default` は Bridge 側に定義してから使います。モデル・認証・実行ファイル・`local_only` は [Bridge の設定仕様](https://github.com/tuckn/tkn_genai_bridge/blob/e0dfc7524c0d74deaad5768d7dd5611b835a6e8b/docs/reference/configuration.md)に従います。Bridge は作業フォルダの `./.tkn/config.yaml` を読みません。
+
+Windows の npm 版 GitHub Copilot CLI は、Bridge が PATH 上の `copilot.cmd`／`copilot.ps1` と既知のパッケージ構成からネイティブの `copilot.exe` を自動解決します。通常は `cli.executable` の絶対パス指定は不要です。明示設定した実行ファイルは引き続き優先します。対応する本体がない場合や未対応の構成では、探索先・理由・対処方法を示して停止します。`config list` や通常の `--dry-run` は実行ファイルの存在・起動・認証までは確認しません。
 
 ```shell
 tkn-doc-summarizer config list --profile conversation

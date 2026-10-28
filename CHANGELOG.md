@@ -30,6 +30,7 @@
 
 ## Unreleased
 
+- Bridge の固定依存先を `e0dfc7524c0d74deaad5768d7dd5611b835a6e8b` に更新しました。Windows の npm 版 GitHub Copilot CLI の shim からネイティブ本体を自動解決する修正を取り込み、通常は `cli.executable` の絶対パス指定なしで利用できます。
 - `bridge_profile` の省略／`null` で Bridge 共有設定の `default_profile` に従うようにしました。名前を明示した場合はその接続先に固定し、同梱設定例も `null` に変更しました。
 - アプリ設定を `schema_version: "2.0.0"` に変更しました。`generation.summary`／`generation.comparison` にそれぞれ `default_profile` と `profiles` を置き、各プロファイル内で Bridge の接続先と要約／比較の出力形式をまとめて指定します。`--profile` は実行モード側のプロファイルを選びます。比較の形式・接続先・モデルは要約側から独立し、要約用の `summary_prompt` 設定も比較には適用しません。
 - 旧 `generation.active_profile`／`generation.profiles`／`generation.summary_profile`、トップレベルの旧 AI 設定、`--codex-executable`／`--codex-timeout-seconds` は廃止しました。既存の設定は保存先等を維持して手動移行してください。`config list` の `generationResolved` は `summary`／`comparison` 別に表示します。

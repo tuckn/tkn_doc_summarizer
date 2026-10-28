@@ -13,7 +13,7 @@ authors = [{ name = "Tuckn" }]
 dependencies = [
   "pydantic>=2.10,<3",
   "PyYAML>=6.0,<7",
-  "tkn-genai-bridge @ https://github.com/tuckn/tkn_genai_bridge/archive/9cf534e47159901c3bb05bb802695fad746cc338.zip",
+  "tkn-genai-bridge @ https://github.com/tuckn/tkn_genai_bridge/archive/e0dfc7524c0d74deaad5768d7dd5611b835a6e8b.zip",
 ]
 
 [project.scripts]
