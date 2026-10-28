@@ -12,10 +12,9 @@ from typing import Any
 
 import yaml
 
-from doc_summarizer.config import DEFAULT_SUMMARY_PROFILE
+from doc_summarizer.config import BUILT_IN_COMPARISON_PROFILES, DEFAULT_SUMMARY_PROFILE
 from doc_summarizer.prompting import SummaryPrompt, parse_summary_prompt
 
-BUILT_IN_COMPARISON_PROFILES = ("compare-ja", "compare-en", "claims-ja")
 COMPARISON_OPTIONAL_TEMPLATE_FIELDS = frozenset({"sources"})
 COMPARISON_TEMPLATE_FIELDS = frozenset(
     {

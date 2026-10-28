@@ -86,7 +86,7 @@ def _config(tmp_path: Path) -> AppConfig:
     return AppConfig(
         output_root=tmp_path / "out",
         reports_root=tmp_path / "reports",
-        generation={"summary_profile": "conversation-ja"},
+        generation={"summary": {"profiles": {"default": {"summary_profile": "conversation-ja"}}}},
     )
 
 
@@ -320,9 +320,9 @@ def test_invalid_date_is_read_only(tmp_path: Path, sources: list[str], value: st
     assert not config.output_root.exists() and not config.reports_root.exists()
 
 
-def test_compare_rejects_conversation_profile(tmp_path: Path, sources: list[str]) -> None:
-    with pytest.raises(ValueError, match="series"):
-        synthesize_compare(sources, _config(tmp_path), dry_run=True)
+def test_compare_is_independent_of_conversation_profile(tmp_path: Path, sources: list[str]) -> None:
+    result = synthesize_compare(sources, _config(tmp_path), dry_run=True)
+    assert result.details["summary_profile"] == "compare-ja"
 
 
 def test_cli_config_supports_conversation_profile(capsys: pytest.CaptureFixture[str]) -> None:

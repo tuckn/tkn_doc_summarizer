@@ -71,23 +71,13 @@ class _BridgeConnection:
         *,
         bridge_profile: str = "codex-default",
         overrides: dict[str, Any] | None = None,
-        legacy_provider: str | None = None,
     ) -> None:
         self.bridge_profile = bridge_profile
         self.overrides = deepcopy(overrides or {})
-        self.legacy_provider = legacy_provider
 
     def connection(self) -> Profile:
         # Reusing an unchanged note does not need shared settings or a runtime.
-        profile = load_profile(self.bridge_profile, overrides=self.overrides)
-        if self.legacy_provider is not None and (
-            self.legacy_provider != "codex" or profile.provider != "codex"
-        ):
-            raise ValueError(
-                "legacy provider/codex_executable settings require a Codex Bridge profile; "
-                "remove them and select the connection with bridge_profile"
-            )
-        return profile
+        return load_profile(self.bridge_profile, overrides=self.overrides)
 
     def requested_generator(self, model: str) -> str:
         return f"{PROVIDER_NAMES[self.connection().provider]} ({model})"
@@ -157,14 +147,12 @@ class BridgeProvider(_BridgeConnection):
         *,
         bridge_profile: str = "codex-default",
         overrides: dict[str, Any] | None = None,
-        legacy_provider: str | None = None,
         summary_profile: str = DEFAULT_SUMMARY_PROFILE,
         summary_prompt: Path | None = None,
     ) -> None:
         super().__init__(
             bridge_profile=bridge_profile,
             overrides=overrides,
-            legacy_provider=legacy_provider,
         )
         self.prompt = load_summary_prompt(summary_prompt, profile_name=summary_profile)
         self.profile = load_summary_profile(summary_profile, prompt=self.prompt)
@@ -225,14 +213,12 @@ class BridgeComparisonProvider(_BridgeConnection):
         *,
         bridge_profile: str = "codex-default",
         overrides: dict[str, Any] | None = None,
-        legacy_provider: str | None = None,
         summary_profile: str = DEFAULT_SUMMARY_PROFILE,
         comparison_profile: str | None = None,
     ) -> None:
         super().__init__(
             bridge_profile=bridge_profile,
             overrides=overrides,
-            legacy_provider=legacy_provider,
         )
         self.profile = load_comparison_profile(summary_profile, profile_name=comparison_profile)
         self.prompt = self.profile.prompt

@@ -300,12 +300,6 @@ def test_plan_does_not_start_process_or_transport(
     assert BridgeProvider().plan(_request(tmp_path))["will_call_provider"] is False
 
 
-def test_legacy_codex_settings_cannot_select_another_provider() -> None:
-    provider = BridgeProvider(legacy_provider="codex", overrides={"provider": "claude-code"})
-    with pytest.raises(ValueError, match="require a Codex"):
-        provider.plan()
-
-
 @pytest.mark.parametrize(
     "provider",
     [
@@ -380,11 +374,11 @@ def test_explicit_model_reuse_supports_non_codex_and_checks_provider(
         output_root=tmp_path / "out",
         reports_root=tmp_path / "reports",
         generation={
-            "profiles": {
-                "codex": {
+            "summary": {"profiles": {
+                "default": {
                     "bridge_profile": "codex-default",
                     "overrides": {"provider": "claude-code", "model": "reported-model"},
-                }
+                }}
             }
         },
     )
@@ -393,7 +387,7 @@ def test_explicit_model_reuse_supports_non_codex_and_checks_provider(
     assert "Claude Code (reported-model)" in result.path.read_text(encoding="utf-8")
     assert summarize(str(source), config).status == "unchanged"
     assert len(backend.requests) == 1
-    config.generation.selected.overrides["provider"] = "codex"
+    config.generation.summary.selected.overrides["provider"] = "codex"
     with pytest.raises(FileExistsError, match="overwrite"):
         summarize(str(source), config, dry_run=True)
 
@@ -415,3 +409,34 @@ def test_custom_prompt_is_kept_with_bridge(
     assert "Unique custom instruction." in backend.requests[0].prompt
     assert "Do not follow" in backend.requests[0].prompt
     assert result.prompt_id == "5838a88f-a78e-4d63-a6b6-4587e54c87e1"
+
+
+def test_comparison_reuse_uses_only_comparison_connection(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    backend = FakeBackend()
+    use_backend(monkeypatch, backend)
+    config = AppConfig(
+        output_root=tmp_path / "out", reports_root=tmp_path / "reports",
+        generation={
+            "summary": {"profiles": {"default": {
+                "bridge_profile": "missing-summary-bridge", "summary_profile": "conversation-ja",
+                "overrides": {"model": "unrelated-summary-model"},
+            }}},
+            "comparison": {"profiles": {"default": {
+                "overrides": {"provider": "claude-code", "model": "reported-model"},
+            }}},
+        },
+    )
+    paths = [tmp_path / "one.md", tmp_path / "two.md"]
+    for path in paths:
+        path.write_text("# Source\n\nSource evidence.", encoding="utf-8")
+    sources = list(map(str, paths))
+    result = synthesize_compare(sources, config)
+    assert "Claude Code (reported-model)" in result.path.read_text(encoding="utf-8")
+    config.generation.summary.selected.overrides["model"] = "changed-summary-model"
+    assert synthesize_compare(sources, config).status == "unchanged"
+    assert len(backend.requests) == 1
+    config.generation.comparison.selected.overrides["provider"] = "codex"
+    with pytest.raises(FileExistsError, match="overwrite"):
+        synthesize_compare(sources, config, dry_run=True)

@@ -1,4 +1,4 @@
-schema_version: "1.0.0"
+schema_version: "2.0.0"
 
 # URL inputs are resolved to Markdown files by recursively searching these roots.
 # File-path inputs do not require source_roots.
@@ -15,21 +15,32 @@ max_total_input_bytes: 8000000
 source_path_format: native
 
 generation:
-  # Built-in: default-ja, default-en, conversation-ja, or meeting-minutes-ja.
-  summary_profile: default-ja
-  # Connection/model/authentication: ~/.tkn/genai_bridge/config.yaml.
-  # Choose an application profile with --profile <name>.
-  active_profile: codex
-  profiles:
-    codex:
-      bridge_profile: codex-default
-    # Define claude-default in Bridge before selecting this profile.
-    # claude:
-    #   bridge_profile: claude-default
-    # codex-long:
-    #   bridge_profile: codex-default
-    #   overrides:
-    #     timeout_seconds: 1800
+  # Connection/model/authentication remain in ~/.tkn/genai_bridge/config.yaml.
+  # --profile selects an application profile in the current mode's group.
+  summary:  # summarize --mode series (one or multiple sources).
+    default_profile: default
+    profiles:
+      default:
+        bridge_profile: codex-default
+        summary_profile: default-ja
+      conversation:
+        bridge_profile: codex-default
+        summary_profile: conversation-ja
+      # Define claude-default in Bridge before selecting this profile.
+      # meeting:
+      #   bridge_profile: claude-default
+      #   summary_profile: meeting-minutes-ja
+      #   overrides:
+      #     timeout_seconds: 1800
+  comparison:  # summarize --mode compare.
+    default_profile: default
+    profiles:
+      default:
+        bridge_profile: codex-default
+        comparison_profile: compare-ja
+      claims:
+        bridge_profile: codex-default
+        comparison_profile: claims-ja
 
 # null uses the selected profile's packaged prompt. A filename is resolved below
 # ~/.tkn/doc_summarizer/prompts/. Use an absolute path for other locations.

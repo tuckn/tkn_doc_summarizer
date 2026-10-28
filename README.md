@@ -66,7 +66,7 @@ flowchart LR
 
 要約プロファイルは、言語・生成指示・出力形式をまとめた設定です。
 `default-ja` は日本語、`default-en` は英語の記事要約、`conversation-ja` は日本語の会話記録、`meeting-minutes-ja` は会議後の議事メモを作ります。
-生成に使う接続先・モデルは Bridge の共有設定で指定し、アプリの `generation.profiles` から参照します。
+生成に使う接続先・モデルは Bridge の共有設定で指定し、アプリの `generation.summary.profiles`／`generation.comparison.profiles` から参照します。それぞれのプロファイルに接続先と出力形式をまとめます。
 要約ノートのほかに、成功・失敗や生成条件を記録した JSON の実行レポートを保存します。
 
 ## セットアップ
@@ -109,7 +109,31 @@ tkn-doc-summarizer config init
 
 接続先・モデル・認証は Bridge の共有設定 `~/.tkn/genai_bridge/config.yaml` にまとめます。
 共有設定がない場合も組み込みの `codex-default` を利用できます。既定では認証済みの Codex CLI を使います。
-本 CLI の設定は `generation.profiles` から Bridge のプロファイルを参照します。
+本 CLI は、要約では `generation.summary`、比較では `generation.comparison` の `default_profile` を使います。各 `profiles` の `bridge_profile` で Bridge の接続先、`summary_profile`／`comparison_profile` で出力形式を指定します。
+
+```yaml
+schema_version: "2.0.0"
+generation:
+  summary:
+    default_profile: default
+    profiles:
+      default:
+        bridge_profile: codex-default
+        summary_profile: default-ja
+      conversation:
+        bridge_profile: codex-default
+        summary_profile: conversation-ja
+  comparison:
+    default_profile: default
+    profiles:
+      default:
+        bridge_profile: codex-default
+        comparison_profile: compare-ja
+```
+
+`summarize --profile conversation SOURCE` なら接続先と会話記録の形式をまとめて選べます。`--mode compare --profile NAME` は比較側のプロファイルを選びます。`bridge_profile` は Bridge の設定名であり、モデル名や CLI のパスではありません。
+
+旧設定の `generation.active_profile`／`generation.profiles` やトップレベルの `model` 等は廃止しました。既存の設定は、新形式への手動移行が必要です。移行例は [設定と生成プロファイル](docs/reference/configuration.md#旧形式からの移行) を参照してください。
 
 ファイルパスを直接指定する場合、既定の保存先を使えば設定ファイルの編集は不要です。
 要約は `~/.tkn/doc_summarizer/data/summaries/`、実行レポートは `~/.tkn/doc_summarizer/state/reports/` に保存します。
@@ -120,7 +144,7 @@ URL 入力を使う場合は `source_roots` を保存済み Markdown のフォ�
 tkn-doc-summarizer config list
 ```
 
-`git config --list` のように、1行ごとの `key=value` で表示します。`values.*` で有効値、`value_sources.*` で設定元、`generationResolved.*` で解決した接続先・モデルなどを確認できます。Windows のパスはそのままコピーできます。
+`git config --list` のように、1行ごとの `key=value` で表示します。`values.*` で有効値、`value_sources.*` で設定元、`generationResolved.summary.*`／`generationResolved.comparison.*` で各モードの接続先・モデルなどを確認できます。Windows のパスはそのままコピーできます。
 構造化された JSON が必要な場合は `tkn-doc-summarizer config list --json` を使います。
 設定例、変更できる項目、優先順位は [設定と生成プロファイル](docs/reference/configuration.md) を参照してください。
 

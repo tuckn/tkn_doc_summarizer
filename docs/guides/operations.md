@@ -22,7 +22,7 @@ tkn-doc-summarizer summarize --sources-file sources.txt --mode compare --dry-run
 tkn-doc-summarizer summarize --sources-file sources.txt --mode compare --comparison-profile claims-ja --output "C:\path\to\permanent\speaker-claims.md"
 ```
 
-`--comparison-profile` はcompareモード専用で、`compare-ja`・`compare-en`・`claims-ja` から選びます。省略すると従来どおり `--summary-profile` の言語に応じた比較profileです。`claims-ja` は日本語で主張の全体像、繰り返し、論点別の論拠、違い・留保、個別動画の主張、用語、結論、出典一覧を作成します。
+`--comparison-profile` はcompareモード専用で、`compare-ja`・`compare-en`・`claims-ja` から選びます。省略時は `generation.comparison` で選択したプロファイルの `comparison_profile` を使います。`--profile NAME` で比較用の接続先と出力形式をまとめて選べます。要約側の `--summary-profile` は比較には指定できません。`claims-ja` は日本語で主張の全体像、繰り返し、論点別の論拠、違い・留保、個別動画の主張、用語、結論、出典一覧を作成します。
 
 各項目のS番号は元の入力ノートへの直接リンクです。同一ドライブなら出力ノートからの相対パス、異なるドライブならfile URIになります。末尾の出典一覧には元ノートのreviewStatusを表示します。全入力が本文の少なくとも1項目で参照され、未知・重複IDがないことを保存前に検査します。引用の内容との一致や主張の正しさは自動検証できません。
 

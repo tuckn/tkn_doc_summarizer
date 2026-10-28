@@ -30,6 +30,8 @@
 
 ## Unreleased
 
+- アプリ設定を `schema_version: "2.0.0"` に変更しました。`generation.summary`／`generation.comparison` にそれぞれ `default_profile` と `profiles` を置き、各プロファイル内で Bridge の接続先と要約／比較の出力形式をまとめて指定します。`--profile` は実行モード側のプロファイルを選びます。比較の形式・接続先・モデルは要約側から独立し、要約用の `summary_prompt` 設定も比較には適用しません。
+- 旧 `generation.active_profile`／`generation.profiles`／`generation.summary_profile`、トップレベルの旧 AI 設定、`--codex-executable`／`--codex-timeout-seconds` は廃止しました。既存の設定は保存先等を維持して手動移行してください。`config list` の `generationResolved` は `summary`／`comparison` 別に表示します。
 - 生成コマンドを `summarize` に統一し、`synthesize` は廃止しました。既定の `--mode series` は1件なら単一要約、複数件なら入力順の統合要約を生成し、`--mode compare` は2件以上を比較します。位置引数と `--sources-file FILE` のどちらでも入力でき、実行レポートの `command` も `summarize` になります。既存のノート形式と再利用条件は維持します。
 - 同梱リソースを `src\profiles\summary\<profile名>\` と `src\profiles\comparison\<profile名>\` に整理しました。要約用は単一・複数入力で共用します。CLI の profile 名、リソース内容・ID・ハッシュは変えず、リソース参照は `package:profiles/summary/...` / `package:profiles/comparison/...` へ更新しました。
 - README に、文字起こし1件を `conversation-ja` と補足 context で要約する、パス・内容を匿名化した PowerShell の実行例を追加しました。
@@ -39,6 +41,6 @@
 - `config show` を `config list` に変更しました。旧コマンドは受け付けません。既存の手順・スクリプトは `config list` に変更してください。
 - 設定一覧の既定出力を、1行ごとの `key=value` に変更しました。入れ子・配列も展開し、Windows パスはそのままコピーできます。従来の JSON 出力を利用する処理は `config list --json` に変更してください。
 - 一覧表示の案内は標準エラーへ INFO レベルで表示します。`--quiet` でログを省略できます。
-- インストール済み CLI へ反映するには、リポジトリで `uv tool install . --reinstall` を実行してください。設定ファイルの変更は不要です。
+- インストール済み CLI へ反映するには、リポジトリで `uv tool install . --reinstall` を実行してください。旧設定を使っている場合は、[設定の移行手順](docs/reference/configuration.md#旧形式からの移行)に従って新形式へ変更してください。
 
 過去のリリース履歴は、この変更履歴では未整理です。

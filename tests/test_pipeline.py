@@ -69,12 +69,8 @@ def _config(tmp_path: Path, profile_name: str = "default-ja") -> AppConfig:
         source_roots=[],
         output_root=tmp_path / "summaries",
         reports_root=tmp_path / "reports",
-        provider="codex",
-        model=None,
-        codex_executable="codex",
-        codex_timeout_seconds=60,
         max_input_bytes=100_000,
-        summary_profile=profile_name,
+        generation={"summary": {"profiles": {"default": {"summary_profile": profile_name}}}},
         summary_prompt=None,
     )
 

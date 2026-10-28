@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+import yaml
 
 import doc_summarizer.config as config_module
 from doc_summarizer.config import (
@@ -17,6 +18,11 @@ def test_config_example_is_packaged_and_valid() -> None:
 
     assert b"source_roots:" in payload
     assert b"summary_profile: default-ja" in payload
+    config = config_module.AppConfig.model_validate({
+        **config_module.default_values(), **yaml.safe_load(payload),
+    })
+    assert config.generation.comparison.profiles["claims"].comparison_profile == "claims-ja"
+    assert config.generation.summary.profiles["conversation"].summary_profile == "conversation-ja"
 
 
 def test_config_init_creates_then_leaves_identical_file_unchanged(
@@ -68,16 +74,25 @@ def test_config_init_force_backs_up_and_replaces_edited_file(
 def test_five_layer_precedence(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     global_config = tmp_path / "global.yaml"
     global_config.write_text(
-        "model: global\nmax_input_bytes: 10\nsummary_profile: default-ja\n",
+        "generation:\n  summary:\n    profiles:\n      default:\n"
+        "        overrides:\n          model: global\nmax_input_bytes: 10\n",
         encoding="utf-8",
     )
     monkeypatch.setattr(config_module, "global_config_path", lambda: global_config)
     cwd = tmp_path / "project"
     local = cwd / ".tkn" / "config.yaml"
     local.parent.mkdir(parents=True)
-    local.write_text("model: local\nmax_input_bytes: 20\n", encoding="utf-8")
+    local.write_text(
+        "generation:\n  summary:\n    profiles:\n      default:\n"
+        "        overrides:\n          model: local\nmax_input_bytes: 20\n",
+        encoding="utf-8",
+    )
     explicit = tmp_path / "explicit.yaml"
-    explicit.write_text("model: explicit\nmax_input_bytes: 30\n", encoding="utf-8")
+    explicit.write_text(
+        "generation:\n  summary:\n    profiles:\n      default:\n"
+        "        overrides:\n          model: explicit\nmax_input_bytes: 30\n",
+        encoding="utf-8",
+    )
 
     resolved = resolve_config(
         cwd=cwd,
@@ -85,9 +100,12 @@ def test_five_layer_precedence(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
         overrides={"model": "cli"},
     )
 
-    assert resolved.config.model == "cli"
+    assert resolved.config.generation.summary.selected.overrides["model"] == "cli"
     assert resolved.config.max_input_bytes == 30
-    assert resolved.value_sources["model"] == "CLI options"
+    assert (
+        resolved.value_sources["generation.summary.profiles.default.overrides.model"]
+        == "CLI options"
+    )
     assert resolved.value_sources["max_input_bytes"] == str(explicit)
     assert resolved.config.summary_profile == "default-ja"
     assert resolved.config.max_total_input_bytes == 8_000_000
@@ -158,7 +176,10 @@ def test_summary_profile_can_be_selected_by_config_or_cli(
         lambda: tmp_path / "missing-global.yaml",
     )
     explicit = tmp_path / "config.yaml"
-    explicit.write_text("summary_profile: default-en\n", encoding="utf-8")
+    explicit.write_text(
+        "generation:\n  summary:\n    profiles:\n      default:\n"
+        "        summary_profile: default-en\n", encoding="utf-8",
+    )
 
     configured = resolve_config(cwd=tmp_path, explicit_config=explicit)
     overridden = resolve_config(
@@ -169,7 +190,10 @@ def test_summary_profile_can_be_selected_by_config_or_cli(
 
     assert configured.config.summary_profile == "default-en"
     assert overridden.config.summary_profile == "default-ja"
-    assert overridden.value_sources["summary_profile"] == "CLI options"
+    assert (
+        overridden.value_sources["generation.summary.profiles.default.summary_profile"]
+        == "CLI options"
+    )
 
 
 def test_unknown_summary_profile_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -208,56 +232,84 @@ def test_nested_profiles_merge_and_cli_targets_selected_profile(
 ) -> None:
     global_config = tmp_path / "global.yaml"
     global_config.write_text(
-        "generation:\n  summary_profile: default-en\n  profiles:\n"
-        "    work:\n      bridge_profile: shared-work\n"
-        "      overrides:\n        model: base\n        timeout_seconds: 120\n",
+        "generation:\n  summary:\n    profiles:\n"
+        "      work:\n        bridge_profile: shared-work\n        summary_profile: default-en\n"
+        "        overrides:\n          model: base\n          timeout_seconds: 120\n",
         encoding="utf-8",
     )
     monkeypatch.setattr(config_module, "global_config_path", lambda: global_config)
     local = tmp_path / ".tkn" / "config.yaml"
     local.parent.mkdir()
     local.write_text(
-        "generation:\n  active_profile: work\n  profiles:\n"
-        "    work:\n      overrides:\n        model: project\n",
+        "generation:\n  summary:\n    default_profile: work\n    profiles:\n"
+        "      work:\n        overrides:\n          model: project\n",
         encoding="utf-8",
     )
     resolved = resolve_config(
         cwd=tmp_path,
         overrides={"profile": "work", "model": "cli", "summary_profile": "default-ja"},
     )
-    selected = resolved.config.generation.selected
+    selected = resolved.config.generation.summary.selected
     assert selected.bridge_profile == "shared-work"
     assert selected.overrides == {"model": "cli", "timeout_seconds": 120}
     assert resolved.config.summary_profile == "default-ja"
-    assert resolved.config.generation.profiles["codex"].overrides == {}
+    assert resolved.config.generation.summary.profiles["default"].overrides == {}
+    assert resolved.config.generation.comparison.selected.overrides == {}
     assert resolved.sources.count("CLI options") == 1
-    prefix = "generation.profiles.work"
+    prefix = "generation.summary.profiles.work"
     assert resolved.value_sources[f"{prefix}.bridge_profile"] == str(global_config)
     assert resolved.value_sources[f"{prefix}.overrides.timeout_seconds"] == str(global_config)
     assert resolved.value_sources[f"{prefix}.overrides.model"] == "CLI options"
 
 
-def test_legacy_null_clears_lower_model_override(
+def test_null_model_overrides_lower_layer(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     global_config = tmp_path / "global.yaml"
-    global_config.write_text("model: lower\ncodex_timeout_seconds: 60\n", encoding="utf-8")
+    global_config.write_text(
+        "generation:\n  summary:\n    profiles:\n      default:\n"
+        "        overrides:\n          model: lower\n          timeout_seconds: 60\n",
+        encoding="utf-8",
+    )
     monkeypatch.setattr(config_module, "global_config_path", lambda: global_config)
     explicit = tmp_path / "explicit.yaml"
-    explicit.write_text("model: null\n", encoding="utf-8")
+    explicit.write_text(
+        "generation:\n  summary:\n    profiles:\n      default:\n"
+        "        overrides:\n          model: null\n", encoding="utf-8",
+    )
     config = resolve_config(cwd=tmp_path, explicit_config=explicit).config
-    assert config.model is None
-    assert config.generation.selected.overrides == {"timeout_seconds": 60}
+    assert config.generation.summary.selected.overrides == {"model": None, "timeout_seconds": 60}
 
 
 @pytest.mark.parametrize(
     "text,match",
     [
-        ("model: old\ngeneration: {}\n", "do not mix"),
-        ("generation:\n  active_profile: missing\n", "active_profile"),
+        ("model: old\ngeneration: {}\n", "extra"),
+        ("generation:\n  active_profile: missing\n", "extra"),
         ("schema_version: '9.0.0'\n", "schema_version"),
-        ("generation:\n  profiles:\n    codex:\n      bridge_profile: ' '", "blank"),
+        (
+            "generation:\n  summary:\n    profiles:\n      default:\n"
+            "        bridge_profile: ' '", "blank",
+        ),
+        ("generation:\n  summary:\n    default_profile: missing\n", "default_profile"),
+        ("generation:\n  comparison:\n    default_profile: missing\n", "default_profile"),
+        ("generation:\n  summary:\n    profiles: null\n", "profiles"),
+        ("generation:\n  comparison: null\n", "comparison"),
+        (
+            "generation:\n  comparison:\n    profiles:\n      default:\n"
+            "        comparison_profile: default-ja\n", "comparison_profile",
+        ),
+        (
+            "generation:\n  summary:\n    profiles:\n      default:\n"
+            "        comparison_profile: compare-ja\n", "extra",
+        ),
+        (
+            "generation:\n  comparison:\n    profiles:\n      default:\n"
+            "        summary_profile: default-ja\n", "extra",
+        ),
+        ("generation:\n  summary:\n    default_profile: ' '\n", "blank"),
+        ("generation:\n  comparison:\n    profiles:\n      ' ': {}\n", "blank"),
     ],
 )
 def test_invalid_generation_config_is_rejected(tmp_path: Path, text: str, match: str) -> None:
@@ -265,3 +317,78 @@ def test_invalid_generation_config_is_rejected(tmp_path: Path, text: str, match:
     explicit.write_text(text, encoding="utf-8")
     with pytest.raises(ValueError, match=match):
         resolve_config(cwd=tmp_path, explicit_config=explicit)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "schema_version: '1.0.0'\n",
+        "generation:\n  summary_profile: default-ja\n",
+        "generation:\n  profiles:\n    codex:\n      bridge_profile: codex-default\n",
+        *[f"{key}: codex\n" for key in (
+            "model", "provider", "codex_executable", "codex_timeout_seconds",
+            "summary_profile", "bridge_profile", "provider_timeout_seconds",
+        )],
+    ],
+)
+def test_legacy_settings_are_rejected(tmp_path: Path, text: str) -> None:
+    explicit = tmp_path / "old.yaml"
+    explicit.write_text(text, encoding="utf-8")
+    with pytest.raises(ValueError, match="invalid configuration"):
+        resolve_config(cwd=tmp_path, explicit_config=explicit)
+
+
+@pytest.mark.parametrize("kind", ["summary", "comparison"])
+def test_cli_overrides_only_selected_mode(tmp_path: Path, kind: str) -> None:
+    explicit = tmp_path / "config.yaml"
+    explicit.write_text(yaml.safe_dump({
+        "generation": {
+            group: {
+                "default_profile": "work",
+                "profiles": {"work": {
+                    "bridge_profile": f"{group}-bridge",
+                    f"{group}_profile": (
+                        "conversation-ja" if group == "summary" else "claims-ja"
+                    ),
+                    "overrides": {"model": group, "timeout_seconds": 60},
+                }, "alternate": {"bridge_profile": "alternate"}},
+            } for group in ("summary", "comparison")
+        },
+    }), encoding="utf-8")
+    resolved = resolve_config(
+        cwd=tmp_path, explicit_config=explicit, kind=kind,
+        overrides={
+            "profile": "alternate", "bridge_profile": "cli-bridge",
+            "model": "cli-model", "provider_timeout_seconds": 120,
+            f"{kind}_profile": "default-en" if kind == "summary" else "compare-en",
+        },
+    )
+    section = getattr(resolved.config.generation, kind)
+    other = getattr(
+        resolved.config.generation, "comparison" if kind == "summary" else "summary",
+    )
+    assert section.default_profile == "alternate"
+    assert section.selected.bridge_profile == "cli-bridge"
+    assert section.selected.overrides == {"model": "cli-model", "timeout_seconds": 120}
+    assert getattr(section.selected, f"{kind}_profile").endswith("-en")
+    assert other.default_profile == "work"
+    assert other.selected.bridge_profile.endswith("-bridge")
+    assert other.selected.overrides["timeout_seconds"] == 60
+    prefix = f"generation.{kind}.profiles.alternate"
+    assert resolved.value_sources[f"{prefix}.bridge_profile"] == "CLI options"
+
+
+@pytest.mark.parametrize(
+    "kind,overrides,match",
+    [
+        ("summary", {"profile": "absent"}, "default_profile"),
+        ("comparison", {"profile": "absent"}, "default_profile"),
+        ("summary", {"comparison_profile": "claims-ja"}, "--mode compare"),
+        ("comparison", {"summary_profile": "default-en"}, "--mode series"),
+    ],
+)
+def test_mode_overrides_reject_invalid_selection(
+    tmp_path: Path, kind: str, overrides: dict[str, str], match: str,
+) -> None:
+    with pytest.raises(ValueError, match=match):
+        resolve_config(cwd=tmp_path, kind=kind, overrides=overrides)

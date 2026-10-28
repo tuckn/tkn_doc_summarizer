@@ -116,9 +116,8 @@ def _source_set_with_title(
 
 def provider_for_config(config: AppConfig) -> SummaryProvider:
     return BridgeProvider(
-        bridge_profile=config.generation.selected.bridge_profile,
-        overrides=config.generation.selected.overrides,
-        legacy_provider=config.generation.selected.legacy_provider,
+        bridge_profile=config.generation.summary.selected.bridge_profile,
+        overrides=config.generation.summary.selected.overrides,
         summary_profile=config.summary_profile,
         summary_prompt=config.summary_prompt,
     )
@@ -127,30 +126,32 @@ def provider_for_config(config: AppConfig) -> SummaryProvider:
 def comparison_provider_for_config(
     config: AppConfig, *, comparison_profile: str | None = None
 ) -> ComparisonProvider:
-    if config.summary_profile in ("conversation-ja", "meeting-minutes-ja"):
-        raise ValueError(
-            f"{config.summary_profile} requires summarize --mode series"
-        )
-    if config.summary_prompt is not None:
-        raise ValueError("--summary-prompt is not supported with --mode compare")
     return BridgeComparisonProvider(
-        bridge_profile=config.generation.selected.bridge_profile,
-        overrides=config.generation.selected.overrides,
-        legacy_provider=config.generation.selected.legacy_provider,
-        summary_profile=config.summary_profile,
-        comparison_profile=comparison_profile,
+        bridge_profile=config.generation.comparison.selected.bridge_profile,
+        overrides=config.generation.comparison.selected.overrides,
+        comparison_profile=(
+            comparison_profile
+            if comparison_profile is not None
+            else config.generation.comparison.selected.comparison_profile
+        ),
     )
 
 
 def _requested_generator(
     provider: SummaryProvider | ComparisonProvider,
     config: AppConfig,
+    *,
+    comparison: bool = False,
 ) -> str | None:
-    if config.model is None:
+    selected = (
+        config.generation.comparison.selected if comparison else config.generation.summary.selected
+    )
+    model = selected.overrides.get("model")
+    if not isinstance(model, str):
         return None
     if isinstance(provider, BridgeProvider | BridgeComparisonProvider):
-        return provider.requested_generator(config.model)
-    return f"Codex ({config.model})"
+        return provider.requested_generator(model)
+    return f"Codex ({model})"
 
 
 def _candidate_metadata(path: Path) -> dict[str, Any] | None:
@@ -1203,7 +1204,7 @@ def _synthesize_compare(
             prompt_version=prompt.version,
             prompt_sha256=prompt.sha256,
             profile_sha256=profile.sha256,
-            requested_generator=_requested_generator(provider, config),
+            requested_generator=_requested_generator(provider, config, comparison=True),
             source_path_format=config.source_path_format,
             context=context,
         )
@@ -1377,8 +1378,6 @@ def synthesize_compare(
     started_at = datetime.now().astimezone()
     if extend_sources and (explicit_output is None or not overwrite):
         raise ValueError("--extend-sources requires --output and --overwrite")
-    if config.summary_prompt is not None:
-        raise ValueError("--summary-prompt is not supported with --mode compare")
     active_provider = provider or comparison_provider_for_config(
         config, comparison_profile=comparison_profile
     )

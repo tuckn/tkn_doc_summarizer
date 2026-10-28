@@ -79,13 +79,11 @@ def _config(tmp_path: Path, profile_name: str = "default-ja") -> AppConfig:
         source_roots=[],
         output_root=tmp_path / "summaries",
         reports_root=tmp_path / "reports",
-        provider="codex",
-        model=None,
-        codex_executable="codex",
-        codex_timeout_seconds=60,
         max_input_bytes=100_000,
         max_total_input_bytes=200_000,
-        summary_profile=profile_name,
+        generation={"comparison": {"profiles": {"default": {
+            "comparison_profile": load_comparison_profile(profile_name).name,
+        }}}},
         summary_prompt=None,
     )
 
@@ -210,18 +208,16 @@ def test_comparison_file_uri_config_writes_file_uri_sources(tmp_path: Path) -> N
     assert result.details["source_path_format"] == "file-uri"
 
 
-def test_comparison_rejects_custom_summary_prompt(tmp_path: Path) -> None:
+def test_comparison_is_independent_of_custom_summary_prompt(tmp_path: Path) -> None:
     sources = _sources(tmp_path)
     prompt = tmp_path / "custom-prompt.md"
     prompt.write_text("---\nid: custom\nversion: '1.0'\n---\nCustom", encoding="utf-8")
     config = _config(tmp_path).model_copy(update={"summary_prompt": prompt})
 
-    with pytest.raises(ValueError, match="not supported with --mode compare"):
-        synthesize_compare(
-            [str(path) for path in sources],
-            config,
-            provider=FakeComparisonProvider(),
-        )
+    result = synthesize_compare(
+        [str(path) for path in sources], config, dry_run=True,
+    )
+    assert result.details["summary_profile"] == "compare-ja"
 
 
 def test_claims_links_reach_local_summaries_and_preserve_review_status(tmp_path: Path) -> None:

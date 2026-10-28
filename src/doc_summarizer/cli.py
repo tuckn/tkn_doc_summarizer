@@ -11,10 +11,10 @@ from typing import Any
 
 from doc_summarizer import __version__
 from doc_summarizer.comparison_resources import (
-    BUILT_IN_COMPARISON_PROFILES,
     load_comparison_profile,
 )
 from doc_summarizer.config import (
+    BUILT_IN_COMPARISON_PROFILES,
     BUILT_IN_SUMMARY_PROFILES,
     DEFAULT_SUMMARY_PROFILE,
     initialize_user_config,
@@ -23,6 +23,7 @@ from doc_summarizer.config import (
 )
 from doc_summarizer.console_logging import ColorFormatter, log_success, supports_color
 from doc_summarizer.pipeline import (
+    comparison_provider_for_config,
     provider_for_config,
     summarize,
     synthesize_compare,
@@ -70,14 +71,14 @@ def _common(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument("--output-root", type=Path)
     parser.add_argument("--reports-root", type=Path)
-    parser.add_argument("--profile", help="application generation profile for this run")
+    parser.add_argument(
+        "--profile", help="application profile in the current mode's generation group"
+    )
     parser.add_argument("--bridge-profile", help="shared Bridge profile for this run")
     parser.add_argument("--model", help="Bridge model override for this run")
     parser.add_argument(
         "--provider-timeout-seconds", type=float, help="Bridge timeout for this run"
     )
-    parser.add_argument("--codex-executable", help=argparse.SUPPRESS)
-    parser.add_argument("--codex-timeout-seconds", type=int, help=argparse.SUPPRESS)
     parser.add_argument("--max-input-bytes", type=int)
     parser.add_argument("--max-total-input-bytes", type=int)
     parser.add_argument(
@@ -215,6 +216,14 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="print the full configuration result as JSON instead of key=value lines",
     )
+    config_list.add_argument(
+        "--mode", choices=("series", "compare"), default="series",
+        help="generation group targeted by profile and connection overrides (default: series)",
+    )
+    config_list.add_argument(
+        "--comparison-profile", choices=BUILT_IN_COMPARISON_PROFILES,
+        help="comparison format override; requires --mode compare",
+    )
 
     prompt_parser = commands.add_parser("prompt", help="summary prompt operations")
     prompt_commands = prompt_parser.add_subparsers(dest="prompt_command", required=True)
@@ -234,6 +243,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _resolved(args: argparse.Namespace) -> Any:
+    if getattr(args, "mode", "series") == "compare" and args.summary_prompt is not None:
+        raise ValueError("--summary-prompt is not supported with --mode compare")
     overrides = {
         key: getattr(args, key, None)
         for key in (
@@ -244,17 +255,17 @@ def _resolved(args: argparse.Namespace) -> Any:
             "bridge_profile",
             "provider_timeout_seconds",
             "model",
-            "codex_executable",
-            "codex_timeout_seconds",
             "max_input_bytes",
             "max_total_input_bytes",
             "summary_profile",
+            "comparison_profile",
             "summary_prompt",
         )
     }
     return resolve_config(
         explicit_config=getattr(args, "config", None),
         overrides=overrides,
+        kind="comparison" if getattr(args, "mode", "series") == "compare" else "summary",
     )
 
 
@@ -374,14 +385,18 @@ def main(argv: list[str] | None = None) -> int:
             )
             profile = load_summary_profile(config.summary_profile, prompt=prompt)
             comparison_profile = load_comparison_profile(
-                "default-ja"
-                if config.summary_profile in ("conversation-ja", "meeting-minutes-ja")
-                else config.summary_profile
+                profile_name=config.generation.comparison.selected.comparison_profile
             )
             values = public_config(config)
-            generation_resolved = provider_for_config(config).plan() | {
-                "active_profile": config.generation.active_profile,
-                "summary_profile": config.summary_profile,
+            generation_resolved = {
+                "summary": provider_for_config(config).plan() | {
+                    "default_profile": config.generation.summary.default_profile,
+                    "summary_profile": config.summary_profile,
+                },
+                "comparison": comparison_provider_for_config(config).plan() | {
+                    "default_profile": config.generation.comparison.default_profile,
+                    "comparison_profile": comparison_profile.name,
+                },
             }
             values["summary_prompt"] = {
                 "configured": values["summary_prompt"],

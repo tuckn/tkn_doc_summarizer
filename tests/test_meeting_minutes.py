@@ -67,7 +67,9 @@ def backend(monkeypatch: pytest.MonkeyPatch) -> MeetingBackend:
 def _config(tmp_path: Path) -> AppConfig:
     return AppConfig(
         output_root=tmp_path / "out", reports_root=tmp_path / "reports",
-        generation={"summary_profile": "meeting-minutes-ja"},
+        generation={"summary": {"profiles": {"default": {
+            "summary_profile": "meeting-minutes-ja",
+        }}}},
     )
 
 
@@ -203,5 +205,5 @@ def test_meeting_profile_config_and_custom_prompt(
     provider = BridgeProvider(summary_profile="meeting-minutes-ja", summary_prompt=path)
     assert provider.profile.schema.value == MeetingMinutesDocument.model_json_schema()
     assert provider.prompt.mode == "custom"
-    with pytest.raises(ValueError, match="meeting-minutes-ja"):
-        synthesize_compare(_sources(tmp_path), _config(tmp_path), dry_run=True)
+    comparison = synthesize_compare(_sources(tmp_path), _config(tmp_path), dry_run=True)
+    assert comparison.details["summary_profile"] == "compare-ja"

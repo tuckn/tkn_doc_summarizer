@@ -399,7 +399,10 @@ def test_config_list_json_accepts_cli_summary_profile_override(
 
     payload = json.loads(capsys.readouterr().out)  # type: ignore[attr-defined]
     assert payload["values"]["summary_profile"]["name"] == "default-en"
-    assert payload["value_sources"]["summary_profile"] == "CLI options"
+    assert (
+        payload["value_sources"]["generation.summary.profiles.default.summary_profile"]
+        == "CLI options"
+    )
 
 
 @pytest.mark.parametrize("json_output", [False, True])
@@ -457,7 +460,8 @@ def test_config_list_is_read_only_and_reports_winning_sources(
         ]
         assert payload["values"]["max_input_bytes"] == 400
         assert payload["value_sources"]["max_input_bytes"] == "CLI options"
-        assert payload["generationResolved"]["will_call_provider"] is False
+        assert payload["generationResolved"]["summary"]["will_call_provider"] is False
+        assert payload["generationResolved"]["comparison"]["will_call_provider"] is False
     else:
         lines = captured.out.splitlines()
         assert all("=" in line for line in lines)
@@ -466,8 +470,9 @@ def test_config_list_is_read_only_and_reports_winning_sources(
         assert "value_sources.max_input_bytes=CLI options" in lines
         assert "values.summary_profile.name=default-en" in lines
         assert "values.source_roots=[]" in lines
-        assert "values.generation.profiles.codex.overrides={}" in lines
-        assert "generationResolved.will_call_provider=false" in lines
+        assert "values.generation.summary.profiles.default.overrides={}" in lines
+        assert "generationResolved.summary.will_call_provider=false" in lines
+        assert "generationResolved.comparison.will_call_provider=false" in lines
     after = {path: path.read_bytes() for path in tmp_path.rglob("*") if path.is_file()}
     assert after == before
     assert not (tmp_path / "user").exists()
@@ -528,3 +533,94 @@ def test_config_list_missing_explicit_config_returns_error(
     captured = capsys.readouterr()
     assert captured.out == ""
     assert "[ERROR]" in captured.err and "does not exist" in captured.err
+
+
+@pytest.mark.parametrize(
+    "mode,count,expected",
+    [("series", 1, "default-en"), ("series", 2, "default-en"), ("compare", 2, "claims-ja")],
+)
+def test_generation_group_routes_connection_and_format_together(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], mode: str, count: int, expected: str,
+) -> None:
+    import yaml
+
+    config = tmp_path / "config.yaml"
+    config.write_text(yaml.safe_dump({"generation": {
+        kind: {
+            "default_profile": "work",
+            "profiles": {"work": {
+                "bridge_profile": "codex-default",
+                f"{kind}_profile": "default-en" if kind == "summary" else "claims-ja",
+                "overrides": {"model": f"{kind}-model", "timeout_seconds": 71},
+            }},
+        } for kind in ("summary", "comparison")
+    }}), encoding="utf-8")
+    sources = [tmp_path / f"part-{index}.md" for index in range(count)]
+    for source in sources:
+        source.write_text("# Part\n\nContent.", encoding="utf-8")
+    assert main([
+        "summarize", *map(str, sources), "--mode", mode, "--config", str(config),
+        "--output-root", str(tmp_path / "out"), "--reports-root", str(tmp_path / "reports"),
+        "--dry-run",
+    ]) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["details"]["summary_profile"] == expected
+    plan = result["details"]["bridge_plan"]
+    assert plan["model"] == ("comparison-model" if mode == "compare" else "summary-model")
+    assert plan["timeout_seconds"] == 71
+    assert not (tmp_path / "out").exists() and not (tmp_path / "reports").exists()
+
+
+def test_config_list_overrides_comparison_without_changing_summary(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str],
+) -> None:
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        "generation:\n  summary:\n    profiles:\n      default:\n"
+        "        summary_profile: conversation-ja\n  comparison:\n    profiles:\n"
+        "      work:\n        bridge_profile: codex-default\n"
+        "        comparison_profile: claims-ja\n",
+        encoding="utf-8",
+    )
+    assert main([
+        "config", "list", "--config", str(config), "--mode", "compare", "--profile", "work",
+        "--model", "comparison-model", "--comparison-profile", "compare-en", "--json",
+    ]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    resolved = payload["generationResolved"]
+    assert resolved["summary"]["summary_profile"] == "conversation-ja"
+    assert resolved["summary"]["default_profile"] == "default"
+    assert resolved["summary"]["model"] is None
+    assert resolved["comparison"]["comparison_profile"] == "compare-en"
+    assert resolved["comparison"]["default_profile"] == "work"
+    assert resolved["comparison"]["model"] == "comparison-model"
+    assert payload["values"]["comparison_profile"]["name"] == "compare-en"
+    assert (
+        payload["value_sources"]["generation.comparison.profiles.work.overrides.model"]
+        == "CLI options"
+    )
+
+
+@pytest.mark.parametrize(
+    "extra,message",
+    [
+        (["--summary-profile", "default-en"], "--summary-profile requires --mode series"),
+        (["--summary-prompt", "custom.md"], "--summary-prompt is not supported"),
+    ],
+)
+def test_compare_rejects_summary_specific_overrides(
+    capsys: pytest.CaptureFixture[str], extra: list[str], message: str,
+) -> None:
+    assert main(["summarize", "one.md", "two.md", "--mode", "compare", *extra]) == 1
+    captured = capsys.readouterr()
+    assert not captured.out and message in captured.err
+
+
+@pytest.mark.parametrize("option", ["--codex-executable", "--codex-timeout-seconds"])
+def test_removed_legacy_cli_options_are_rejected(
+    capsys: pytest.CaptureFixture[str], option: str,
+) -> None:
+    with pytest.raises(SystemExit) as error:
+        build_parser().parse_args(["summarize", "one.md", option, "60"])
+    assert error.value.code == 2
+    assert "unrecognized arguments" in capsys.readouterr().err

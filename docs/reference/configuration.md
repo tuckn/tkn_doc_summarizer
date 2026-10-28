@@ -16,12 +16,13 @@ tkn-doc-summarizer config list --json
 ```text
 sources[0]=built-in defaults
 values.source_roots[0]=C:\path\to\web-clips
-values.generation.active_profile=codex
-value_sources.generation.active_profile=built-in defaults
-generationResolved.will_call_provider=false
+values.generation.summary.default_profile=default
+value_sources.generation.summary.default_profile=built-in defaults
+generationResolved.summary.will_call_provider=false
+generationResolved.comparison.will_call_provider=false
 ```
 
-`values.*` に有効値とリソース情報、`sources[0]` などに読み込んだ設定元、`value_sources.*` に各値の決定元、`generationResolved.*` に選択した接続先・モデルなどを表示します。`--json` では従来と同じ `sources`、`value_sources`、`values`、`generationResolved` の構造を返します。どちらの形式も読み取り専用で、表示の案内は標準エラーへ `[INFO] Showing resolved configuration` として出ます。`--quiet` は一覧を保ち、ログだけを省略します。
+`values.*` に有効値とリソース情報、`sources[0]` などに読み込んだ設定元、`value_sources.*` に各値の決定元を表示します。`generationResolved.summary.*`／`generationResolved.comparison.*` に各モードで選択した接続先・モデル・出力形式を表示します。`--json` でも同じ構造を返します。どちらの形式も読み取り専用で、表示の案内は標準エラーへ `[INFO] Showing resolved configuration` として出ます。`--quiet` は一覧を保ち、ログだけを省略します。
 
 ## 読み込み順とパス
 
@@ -41,17 +42,20 @@ generationResolved.will_call_provider=false
 
 | キー | 既定値 | 役割 |
 | --- | --- | --- |
-| `schema_version` | `"1.0.0"` | アプリ設定形式の版 |
+| `schema_version` | `"2.0.0"` | アプリ設定形式の版。Bridge や生成ノートの版とは別 |
 | `source_roots` | `[]` | URL から保存済み Markdown を探すフォルダ。空なら URL 検索不可 |
 | `output_root` | `~/.tkn/doc_summarizer/data/summaries` | 自動命名するノートの保存先と既存ノートの検索先 |
 | `reports_root` | `~/.tkn/doc_summarizer/state/reports` | JSON 実行レポートの保存先 |
 | `max_input_bytes` | `2000000` | 1ソースファイル、および結合後 context それぞれの上限バイト数。1以上 |
 | `max_total_input_bytes` | `8000000` | 複数文書を渡す1回の `summarize` のソース＋context 合計入力上限バイト数。1以上 |
 | `source_path_format` | `native` | 出典参照の形式。`native` または `file-uri` |
-| `generation.summary_profile` | `default-ja` | 出力形式。`default-ja` / `default-en` / `conversation-ja` / `meeting-minutes-ja` |
-| `generation.active_profile` | `codex` | アプリ内の生成プロファイル |
-| `generation.profiles.codex.bridge_profile` | `codex-default` | Bridge 共有設定の参照先 |
-| `generation.profiles.<name>.overrides` | `{}` | このアプリでの接続設定上書き |
+| `generation.summary.default_profile` | `default` | 単一・複数入力の要約に使うアプリ内プロファイル |
+| `generation.summary.profiles.<name>.bridge_profile` | `codex-default` | Bridge 共有設定の参照先 |
+| `generation.summary.profiles.<name>.summary_profile` | `default-ja` | 要約の出力形式。`default-ja` / `default-en` / `conversation-ja` / `meeting-minutes-ja` |
+| `generation.comparison.default_profile` | `default` | 比較に使うアプリ内プロファイル |
+| `generation.comparison.profiles.<name>.bridge_profile` | `codex-default` | 比較用の Bridge 共有設定の参照先 |
+| `generation.comparison.profiles.<name>.comparison_profile` | `compare-ja` | 比較の出力形式。`compare-ja` / `compare-en` / `claims-ja` |
+| `generation.<summary または comparison>.profiles.<name>.overrides` | `{}` | このアプリでの接続設定上書き |
 | `summary_prompt` | `null` | 組み込み指示を使用。ファイル名または絶対パスで変更 |
 
 `source_roots: []` は下位層の検索先一覧を空にします。`summary_prompt` や Bridge の `model` に未指定を表す場合は、空文字ではなく YAML の `null` を使います。未知のキー、不正な型・範囲、存在しない `--config`、読み込めないプロンプトはエラーです。
@@ -71,10 +75,11 @@ source_roots:
 
 | 種類 | ファイル・設定 | 選ぶもの | その実行だけ変更 |
 | --- | --- | --- | --- |
-| アプリの要約プロファイル | `generation.summary_profile` | 言語・生成指示・出力形式 | `--summary-profile` |
-| アプリの接続名 | `generation.active_profile` | アプリ内の `generation.profiles` の項目 | `--profile` |
-| Bridge の接続名 | `generation.profiles.<name>.bridge_profile` | 共有設定の接続先・モデル・認証 | `--bridge-profile` |
-| 接続設定の上書き | `generation.profiles.<name>.overrides` | 選択した Bridge 接続設定の一部 | `--model` など |
+| アプリの要約プロファイル | `generation.summary.profiles.<name>.summary_profile` | 言語・生成指示・出力形式 | `--summary-profile`（series のみ） |
+| アプリの比較プロファイル | `generation.comparison.profiles.<name>.comparison_profile` | 比較の生成指示・出力形式 | `--comparison-profile`（compare のみ） |
+| アプリの既定プロファイル | `generation.<summary または comparison>.default_profile` | 各モードの `profiles` の項目 | `--profile` |
+| Bridge の接続名 | 各プロファイルの `bridge_profile` | 共有設定の接続先・モデル・認証 | `--bridge-profile` |
+| 接続設定の上書き | 各プロファイルの `overrides` | 選択した Bridge 接続設定の一部 | `--model` など |
 
 Bridge の共有設定は `~/.tkn/genai_bridge/config.yaml` です。共有設定がなくても組み込みの `codex-default` を利用できます。
 
@@ -94,30 +99,53 @@ profiles:
 
 ```yaml
 generation:
-  summary_profile: default-ja
-  active_profile: codex
-  profiles:
-    codex:
-      bridge_profile: codex-default
-    claude:
-      bridge_profile: claude-default
-    codex-long:
-      bridge_profile: codex-default
-      overrides:
-        timeout_seconds: 1800
+  summary:
+    default_profile: default
+    profiles:
+      default:
+        bridge_profile: codex-default
+        summary_profile: default-ja
+      conversation:
+        bridge_profile: claude-default
+        summary_profile: conversation-ja
+        overrides:
+          timeout_seconds: 1800
+  comparison:
+    default_profile: default
+    profiles:
+      default:
+        bridge_profile: codex-default
+        comparison_profile: compare-ja
+      claims:
+        bridge_profile: claude-default
+        comparison_profile: claims-ja
 ```
 
 `claude-default` は Bridge 側に定義してから使います。モデル・認証・実行ファイル・`local_only` は [Bridge の設定仕様](https://github.com/tuckn/tkn_genai_bridge/blob/9cf534e47159901c3bb05bb802695fad746cc338/docs/reference/configuration.md)に従います。Bridge は作業フォルダの `./.tkn/config.yaml` を読みません。
 
 ```shell
-tkn-doc-summarizer config list --profile claude
-tkn-doc-summarizer summarize "<source-file>" --profile claude --dry-run
+tkn-doc-summarizer config list --profile conversation
+tkn-doc-summarizer summarize "<source-file>" --profile conversation --dry-run
+tkn-doc-summarizer config list --mode compare --profile claims
+tkn-doc-summarizer summarize "<source-1>" "<source-2>" --mode compare --profile claims --dry-run
 ```
+
+`--mode series`（既定）は `generation.summary`、`--mode compare` は `generation.comparison` を使います。`--profile NAME` はそのグループのプロファイルを選び、接続先と出力形式をまとめて切り替えます。その後に `--bridge-profile`、`--model`、`--provider-timeout-seconds`、`--summary-profile`／`--comparison-profile` の上書きを適用します。別モードの設定には影響しません。存在しないプロファイル名はエラーです。
+
+`config list` は常に両モードを表示します。`--profile` 等の上書き対象は既定で要約側です。比較側を確認・上書きするには `--mode compare` を指定します。
 
 `--model` と `--provider-timeout-seconds` はその実行の接続設定を上書きします。待機上限は共有設定を継承します。Bridge の組み込み値は300秒、指定できる範囲は0より大きく86400以下です。存在しないプロファイルや不正な値で、別の接続先へ自動で切り替えることはありません。
 `summarize`、`config list` のオプションはコマンド名の後ろに指定します。`--source-root` は複数回指定でき、設定ファイルの検索先一覧を置き換えます。`--model`、`--config`、`--reports-root`、入力サイズやタイムアウトの指定もその実行だけに適用されます。
 
-旧形式のトップレベル `summary_profile`、`model`、`provider: codex`、`codex_executable`、`codex_timeout_seconds` は読み込み時に変換します。同じファイルで旧形式と `generation` を混在させるとエラーです。旧 `provider` / `codex_executable` は Codex 接続に限定されます。旧 `--codex-executable` / `--codex-timeout-seconds` も互換入力として受け付けます。設定ファイルを自動で書き換えません。
+## 旧形式からの移行
+
+旧設定形式の読み込み互換はありません。`schema_version: "1.0.0"`、`generation.active_profile`／`generation.profiles`／`generation.summary_profile`、トップレベルの `summary_profile`／`bridge_profile`／`model`／`provider`／`provider_timeout_seconds`／`codex_executable`／`codex_timeout_seconds` はエラーです。旧 CLI オプション `--codex-executable`／`--codex-timeout-seconds` も廃止しました。
+
+既存の保存先などは維持したまま、`schema_version` を `"2.0.0"` に変更し、`generation` を上の例のように置き換えてください。旧 `active_profile` の選択名は要約側の `default_profile` に、各接続設定は要約側の `profiles` に移し、各プロファイル内に `summary_profile` を指定します。比較側は別に定義します。以前の英語比較を維持する場合は、比較側に `comparison_profile: compare-en` を明示します。
+
+トップレベルのモデル指定は選択するプロファイルの `overrides.model` に移します。CLI のパスは Bridge 共有設定の対象プロファイルの `cli.executable`（またはアプリ側の `overrides.cli.executable`）へ、タイムアウトは `timeout_seconds`（または `overrides.timeout_seconds`）へ移します。接続先の種類は Bridge 側の `provider` で指定します。
+
+設定ファイルは自動で書き換えません。`config init --force` はバックアップを作って同梱例へ置換するだけであり、設定内容を移行するコマンドではありません。
 
 ## 出典のパス形式
 
@@ -125,11 +153,11 @@ tkn-doc-summarizer summarize "<source-file>" --profile claude --dry-run
 
 ## カスタム生成指示
 
-`conversation-ja` は会話の文字起こし用です。`summarize` の既定の `series` モードで単一・複数入力に使い、会話日は実行時の `--conversation-date YYYY-MM-DD` で指定します。設定ファイルに会話日のキーは追加しません。出典時刻・話者の不確かさ・記録の形式は [会話記録のガイド](../guides/conversations.md) を参照してください。比較に切り替える場合は `--summary-profile default-ja` または `default-en` を明示します。
+`conversation-ja` は会話の文字起こし用です。`summarize` の既定の `series` モードで単一・複数入力に使い、会話日は実行時の `--conversation-date YYYY-MM-DD` で指定します。設定ファイルに会話日のキーは追加しません。出典時刻・話者の不確かさ・記録の形式は [会話記録のガイド](../guides/conversations.md) を参照してください。比較に切り替える場合は `--mode compare` を指定します。比較側の設定は要約側から独立しています。
 
 `meeting-minutes-ja` は会議後の議事メモ用で、概要・事実・認識差／未決事項・RAID・次回確認事項の5節を出力します。同じく `summarize` の `series` モードで単一・複数入力に対応し、`--conversation-date` を使えます。独立した JSON スキーマとテンプレートを持ち、結論・専門用語は要求しません。比較モードでは使いません。
 
-比較用の組み込みprofileは、`summarize --mode compare --comparison-profile NAME` で選べます。`compare-ja`・`compare-en` は記事比較、`claims-ja` は同一話者の主張整理です。省略時は `generation.summary_profile` の `default-ja` / `default-en` に対応する `compare-ja` / `compare-en` を使います。このオプションは実行時のみで、設定ファイルに新しいキーを追加しません。
+比較用の組み込みprofileは、`summarize --mode compare --comparison-profile NAME` で選べます。`compare-ja`・`compare-en` は記事比較、`claims-ja` は同一話者の主張整理です。省略時は選択した `generation.comparison.profiles.<name>.comparison_profile` を使います。要約側が英語でも、比較側の既定は独立して `compare-ja` です。
 
 ```shell
 tkn-doc-summarizer prompt init my-summary.md
@@ -139,7 +167,7 @@ tkn-doc-summarizer prompt init my-summary.md
 
 作成した UTF-8 Markdown の Frontmatter は `type: prompt`、UUID の `id`、文字列の `version` を保持し、本文の指示を編集します。設定ファイルの一部として `summary_prompt: my-summary.md` を指定するか、その実行だけ `--summary-prompt my-summary.md` を使います。別のフォルダなら絶対パスを指定し、相対フォルダを含むパスは指定しません。
 
-カスタム指示は `summarize` の `series` モードで単一・複数入力に使用できます。選択したプロファイルの生成指示のみを置換し、JSON スキーマと Markdown テンプレートは維持します。比較モードはカスタム指示を受け付けません。入力本文を命令として扱わないための区切りはアプリが付けます。
+カスタム指示は `summarize` の `series` モードで単一・複数入力に使用できます。選択したプロファイルの生成指示のみを置換し、JSON スキーマと Markdown テンプレートは維持します。設定ファイルの `summary_prompt` は要約側だけに適用し、比較側には影響しません。比較モードで CLI の `--summary-prompt` を指定するとエラーです。入力本文を命令として扱わないための区切りはアプリが付けます。
 
 ## 実行ごとの補足 context
 
