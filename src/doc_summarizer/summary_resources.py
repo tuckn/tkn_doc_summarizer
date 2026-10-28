@@ -15,7 +15,6 @@ import yaml
 from doc_summarizer.config import DEFAULT_SUMMARY_PROFILE
 from doc_summarizer.prompting import SummaryPrompt, parse_summary_prompt
 
-SUMMARY_PROFILES_ROOT = "summary_profiles"
 PROMPT_FILENAME = "prompt.md"
 SCHEMA_FILENAME = "output.schema.json"
 TEMPLATE_FILENAME = "template.md"
@@ -74,11 +73,11 @@ class SummaryProfile:
 def _profile_resource_name(profile_name: str, filename: str) -> str:
     if _PROFILE_NAME.fullmatch(profile_name) is None:
         raise RuntimeError(f"invalid built-in summary profile name: {profile_name}")
-    return f"{SUMMARY_PROFILES_ROOT}/{profile_name}/{filename}"
+    return f"{profile_name}/{filename}"
 
 
 def _resource_bytes(resource_name: str, label: str) -> bytes:
-    resource = files("doc_summarizer").joinpath(resource_name)
+    resource = files("profiles").joinpath(resource_name)
     try:
         return resource.read_bytes()
     except (OSError, FileNotFoundError) as exc:
@@ -88,7 +87,7 @@ def _resource_bytes(resource_name: str, label: str) -> bytes:
 def _load_profile_prompt(profile_name: str) -> SummaryPrompt:
     resource_name = _profile_resource_name(profile_name, PROMPT_FILENAME)
     payload = _resource_bytes(resource_name, "summary profile prompt")
-    source = f"package:doc_summarizer/{resource_name}"
+    source = f"package:profiles/{resource_name}"
     return parse_summary_prompt(payload, source, "built-in")
 
 
@@ -115,7 +114,7 @@ def load_summary_schema(
 ) -> SummarySchema:
     resource_name = _profile_resource_name(profile_name, SCHEMA_FILENAME)
     payload = _resource_bytes(resource_name, "summary profile schema")
-    source = f"package:doc_summarizer/{resource_name}"
+    source = f"package:profiles/{resource_name}"
     try:
         resource = json.loads(payload.decode("utf-8-sig"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -157,7 +156,7 @@ def load_summary_template(
 ) -> SummaryTemplate:
     resource_name = _profile_resource_name(profile_name, TEMPLATE_FILENAME)
     payload = _resource_bytes(resource_name, "summary profile template")
-    source = f"package:doc_summarizer/{resource_name}"
+    source = f"package:profiles/{resource_name}"
     try:
         text = payload.decode("utf-8-sig").replace("\r\n", "\n")
     except UnicodeDecodeError as exc:
@@ -230,7 +229,7 @@ def load_summary_profile(
     active_prompt = prompt or _load_profile_prompt(profile_name)
     schema = load_summary_schema(profile_name)
     template = load_summary_template(profile_name)
-    source = f"package:doc_summarizer/{SUMMARY_PROFILES_ROOT}/{profile_name}"
+    source = f"package:profiles/{profile_name}"
     identity = json.dumps(
         {
             "name": profile_name,

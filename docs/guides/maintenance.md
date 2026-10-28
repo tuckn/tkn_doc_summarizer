@@ -59,7 +59,17 @@ uv tool install -e . --reinstall
 
 ## 同梱の要約プロファイルを変更する
 
-生成指示、JSON 出力形式、Markdown テンプレートは1組のリソースです。単一文書・連続ページは `src/doc_summarizer/summary_profiles/`、比較は `src/doc_summarizer/comparison_profiles/` にあり、それぞれ `default-ja/` と `default-en/` を持ちます。会話記録は `summary_profiles/conversation-ja/`、主張整理は `comparison_profiles/claims-ja/` です。
+生成指示、JSON 出力形式、Markdown テンプレートは1組のリソースです。要約・比較とも `src\profiles\<profile名>\` にまとめています。
+
+| profile 名 | 用途 |
+| --- | --- |
+| `default-ja` / `default-en` | 単一文書・連続ページの日本語／英語要約 |
+| `conversation-ja` | 文字起こしの会話記録 |
+| `meeting-minutes-ja` | 会議後の議事メモ |
+| `compare-ja` / `compare-en` | 独立した文書の日本語／英語比較 |
+| `claims-ja` | 同一話者の主張整理 |
+
+`profiles` は配布パッケージにも同梱し、実行時は `importlib.resources` から読み込みます。`config list` のリソース参照は `package:profiles/<profile名>/...` です。CLI の profile 名・選択方法は変わりません。
 
 | ファイル | 担当 |
 | --- | --- |

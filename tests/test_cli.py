@@ -255,12 +255,12 @@ def test_config_list_json_reports_summary_profile_resources(
     payload = json.loads(capsys.readouterr().out)  # type: ignore[attr-defined]
     profile = payload["values"]["summary_profile"]
     assert profile["name"] == "default-ja"
-    assert profile["source"].endswith("summary_profiles/default-ja")
+    assert profile["source"] == "package:profiles/default-ja"
     assert profile["output_schema"]["source"].endswith("output.schema.json")
     assert profile["template"]["source"].endswith("template.md")
     comparison = payload["values"]["comparison_profile"]
     assert comparison["name"] == "compare-ja"
-    assert comparison["source"].endswith("comparison_profiles/default-ja")
+    assert comparison["source"] == "package:profiles/compare-ja"
     assert payload["values"]["source_path_format"] == "native"
     assert payload["value_sources"]["source_path_format"] == "built-in defaults"
 

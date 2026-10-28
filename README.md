@@ -193,6 +193,18 @@ URL は `source_roots` に保存済みの記事を探すための検索キーで
 
 `conversation-ja` は「会合・資料情報 → 短い概要 → 話題別の記録 → 約束・予定・願望 → 未確認事項・読み取り上の制約」を作ります。発言ごとにファイルID・ファイル内時刻・元の話者ラベルを残し、実名との対応を未確認／推定／明示確認で区別します。会話日は `--conversation-date YYYY-MM-DD` で指定し、省略時は未確認です。人物分析やプレゼント提案は含めません。使い方と検証範囲は [文字起こしから会話記録を作る](docs/guides/conversations.md) を参照してください。
 
+文字起こし1件に背景を添え、会話記録を作る PowerShell の実行例です。パスと内容は説明用に匿名化しています。リポジトリのルートから `uv run` で実行します。
+
+```powershell
+uv run tkn-doc-summarizer summarize `
+  "C:\work\transcripts\transcript.md" `
+  --summary-profile conversation-ja `
+  --context "本人と上司（キャリアアドバイザー）との月次打ち合わせ。現在と次のプロジェクトについての会話。" `
+  --output-root "C:\work\notes\conversations"
+```
+
+実際のパス・補足に置き換えてください。出力は `C:\work\notes\conversations` 配下の年別フォルダーへ自動命名で保存され、実行結果の `path` で確認できます。`--summary-profile` にはフォルダーのパスではなく profile 名を指定します。
+
 `meeting-minutes-ja` は「概要（エグゼクティブ・サマリーの箇条書き）→ 会話で確認できた事実 → 認識差・未決事項 → RAID（Risk / Action / Issue / Decision）→ 次回確認事項」を作ります。発言・資料記載・ユーザー補足・解釈と、確定／暫定／要確認を区別し、Action の担当・期限が分からなければ要確認として残します。単一の文字起こしは `summarize`、複数録音は `synthesize --mode series` で使います。
 
 ```shell
@@ -298,8 +310,9 @@ tkn-doc-summarizer --version
 - [保存先、結果、対応範囲](docs/reference/output-and-results.md)：実行結果とレポートの読み方。
 - [更新と開発](docs/guides/maintenance.md)：再インストール、検証、開発時の操作。
 - [設定例](src/doc_summarizer/resources/config.example.yaml)：`config init` が作成する全項目。
-- [日本語の要約指示](src/doc_summarizer/summary_profiles/default-ja/prompt.md)／[英語の要約指示](src/doc_summarizer/summary_profiles/default-en/prompt.md)：単一文書と連続ページの要約方針。
-- [日本語の比較指示](src/doc_summarizer/comparison_profiles/default-ja/prompt.md)／[英語の比較指示](src/doc_summarizer/comparison_profiles/default-en/prompt.md)：出典を付けた比較の方針。
+- [日本語の要約指示](src/profiles/default-ja/prompt.md)／[英語の要約指示](src/profiles/default-en/prompt.md)：単一文書と連続ページの要約方針。
+- [日本語の比較指示](src/profiles/compare-ja/prompt.md)／[英語の比較指示](src/profiles/compare-en/prompt.md)：出典を付けた比較の方針。
+- [会話記録の指示](src/profiles/conversation-ja/prompt.md)／[議事メモの指示](src/profiles/meeting-minutes-ja/prompt.md)：文字起こしの記録方針。
 - [CLI の定義](src/doc_summarizer/cli.py)：コマンドと引数。
 - [ノートの検証](src/doc_summarizer/validation.py)：保存済みノートの形式・出典の検査。
 - [テスト](tests/)：人工データによる動作確認。

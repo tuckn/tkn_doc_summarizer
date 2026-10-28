@@ -15,7 +15,6 @@ import yaml
 from doc_summarizer.config import DEFAULT_SUMMARY_PROFILE
 from doc_summarizer.prompting import SummaryPrompt, parse_summary_prompt
 
-COMPARISON_PROFILES_ROOT = "comparison_profiles"
 BUILT_IN_COMPARISON_PROFILES = ("compare-ja", "compare-en", "claims-ja")
 COMPARISON_OPTIONAL_TEMPLATE_FIELDS = frozenset({"sources"})
 COMPARISON_TEMPLATE_FIELDS = frozenset(
@@ -66,17 +65,17 @@ class ComparisonProfile:
 def _resource_name(profile_name: str, filename: str) -> str:
     if _PROFILE_NAME.fullmatch(profile_name) is None:
         raise RuntimeError(f"invalid built-in comparison profile name: {profile_name}")
-    return f"{COMPARISON_PROFILES_ROOT}/{profile_name}/{filename}"
+    return f"{profile_name}/{filename}"
 
 
 def _resource_bytes(profile_name: str, filename: str, label: str) -> tuple[bytes, str]:
     resource_name = _resource_name(profile_name, filename)
-    resource = files("doc_summarizer").joinpath(resource_name)
+    resource = files("profiles").joinpath(resource_name)
     try:
         payload = resource.read_bytes()
     except (OSError, FileNotFoundError) as exc:
         raise RuntimeError(f"built-in {label} is unavailable: {resource_name}: {exc}") from exc
-    return payload, f"package:doc_summarizer/{resource_name}"
+    return payload, f"package:profiles/{resource_name}"
 
 
 def _validate_strict_object(value: Any, source: str, path: str) -> None:
@@ -169,18 +168,15 @@ def load_comparison_profile(
         profile_name = "compare-ja" if language_profile == "default-ja" else "compare-en"
     if profile_name not in BUILT_IN_COMPARISON_PROFILES:
         raise ValueError(f"unknown comparison profile: {profile_name}")
-    resource_profile = {
-        "compare-ja": "default-ja", "compare-en": "default-en", "claims-ja": "claims-ja"
-    }[profile_name]
     language_profile = "default-en" if profile_name == "compare-en" else "default-ja"
     prompt_payload, prompt_source = _resource_bytes(
-        resource_profile, "prompt.md", "comparison prompt"
+        profile_name, "prompt.md", "comparison prompt"
     )
     prompt = parse_summary_prompt(prompt_payload, prompt_source, "built-in")
-    schema = _load_schema(resource_profile)
-    template = _load_template(resource_profile)
+    schema = _load_schema(profile_name)
+    template = _load_template(profile_name)
     name = profile_name
-    source = f"package:doc_summarizer/{COMPARISON_PROFILES_ROOT}/{resource_profile}"
+    source = f"package:profiles/{profile_name}"
     identity = json.dumps(
         {
             "name": name,

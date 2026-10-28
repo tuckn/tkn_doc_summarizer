@@ -11,7 +11,7 @@ def test_japanese_comparison_profile_is_packaged_and_strict() -> None:
     profile = load_comparison_profile("default-ja")
 
     assert profile.name == "compare-ja"
-    assert profile.source.endswith("comparison_profiles/default-ja")
+    assert profile.source == "package:profiles/compare-ja"
     assert "source-faithful Japanese comparison" in profile.prompt.instructions
     assert "## 2. 共通概念" in profile.template.body
     assert set(profile.schema.value["required"]) == set(profile.schema.value["properties"])

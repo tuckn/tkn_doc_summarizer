@@ -28,7 +28,7 @@ dev = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/doc_summarizer"]
+packages = ["src/doc_summarizer", "src/profiles"]
 
 [tool.hatch.metadata]
 allow-direct-references = true
