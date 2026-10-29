@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import argparse
-import json
 import logging
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 from doc_summarizer import __version__
 from doc_summarizer.comparison_resources import (
@@ -17,11 +16,15 @@ from doc_summarizer.config import (
     BUILT_IN_COMPARISON_PROFILES,
     BUILT_IN_SUMMARY_PROFILES,
     DEFAULT_SUMMARY_PROFILE,
+    global_config_path,
     initialize_user_config,
     public_config,
     resolve_config,
+    user_prompts_root,
 )
 from doc_summarizer.console_logging import ColorFormatter, log_success, supports_color
+from doc_summarizer.output import config_lines as config_lines
+from doc_summarizer.output import emit
 from doc_summarizer.pipeline import (
     comparison_provider_for_config,
     provider_for_config,
@@ -37,6 +40,19 @@ from doc_summarizer.validation import validate_summary
 logger = logging.getLogger(__name__)
 
 
+class ArgumentFailure(SystemExit):
+    def __init__(self, message: str) -> None:
+        super().__init__(2)
+        self.message = message
+
+
+class Parser(argparse.ArgumentParser):
+    def error(self, message: str) -> NoReturn:
+        self.print_usage(sys.stderr)
+        self._print_message(f"{self.prog}: error: {message}\n", sys.stderr)
+        raise ArgumentFailure(message)
+
+
 def _configure_console_encoding() -> None:
     for stream in (sys.stdout, sys.stderr):
         reconfigure = getattr(stream, "reconfigure", None)
@@ -45,17 +61,25 @@ def _configure_console_encoding() -> None:
 
 
 def _verbosity(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="print one JSON result instead of the default key=value list (logs use stderr)",
+    )
     verbosity = parser.add_mutually_exclusive_group()
     verbosity.add_argument(
         "-q",
         "--quiet",
         action="store_true",
+        default=argparse.SUPPRESS,
         help="suppress progress logs; errors are still shown",
     )
     verbosity.add_argument(
         "-v",
         "--verbose",
         action="store_true",
+        default=argparse.SUPPRESS,
         help="show detailed diagnostic logs",
     )
 
@@ -119,13 +143,14 @@ def _context_options(parser: argparse.ArgumentParser) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
+    parser = Parser(
         prog="tkn-doc-summarizer",
         description=(
             "Create a Markdown summary or comparison from local documents. URL inputs locate an "
             "already-clipped Markdown file; the CLI does not fetch web pages."
         ),
     )
+    _verbosity(parser)
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     commands = parser.add_subparsers(dest="command", required=True)
 
@@ -195,6 +220,7 @@ def build_parser() -> argparse.ArgumentParser:
     _verbosity(validate_parser)
 
     config_parser = commands.add_parser("config", help="configuration operations")
+    _verbosity(config_parser)
     config_commands = config_parser.add_subparsers(dest="config_command", required=True)
     config_init = config_commands.add_parser(
         "init",
@@ -212,20 +238,19 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _common(config_list)
     config_list.add_argument(
-        "--json",
-        action="store_true",
-        help="print the full configuration result as JSON instead of key=value lines",
-    )
-    config_list.add_argument(
-        "--mode", choices=("series", "compare"), default="series",
+        "--mode",
+        choices=("series", "compare"),
+        default="series",
         help="generation group targeted by profile and connection overrides (default: series)",
     )
     config_list.add_argument(
-        "--comparison-profile", choices=BUILT_IN_COMPARISON_PROFILES,
+        "--comparison-profile",
+        choices=BUILT_IN_COMPARISON_PROFILES,
         help="comparison format override; requires --mode compare",
     )
 
     prompt_parser = commands.add_parser("prompt", help="summary prompt operations")
+    _verbosity(prompt_parser)
     prompt_commands = prompt_parser.add_subparsers(dest="prompt_command", required=True)
     prompt_init = prompt_commands.add_parser(
         "init",
@@ -269,45 +294,48 @@ def _resolved(args: argparse.Namespace) -> Any:
     )
 
 
-def _json_default(value: object) -> str:
-    if isinstance(value, Path):
-        return str(value)
-    raise TypeError(f"not JSON serializable: {type(value).__name__}")
-
-
-def config_lines(value: Any, prefix: str = "") -> list[str]:
-    """Flatten configuration into copyable key=value lines, preserving path separators."""
-    if isinstance(value, dict):
-        if not value:
-            return [f"{prefix}={{}}"]
-        return [
-            line
-            for key, item in value.items()
-            for line in config_lines(item, f"{prefix}.{key}" if prefix else key)
-        ]
-    if isinstance(value, list):
-        if not value:
-            return [f"{prefix}=[]"]
-        return [
-            line
-            for index, item in enumerate(value)
-            for line in config_lines(item, f"{prefix}[{index}]")
-        ]
-    if isinstance(value, str):
-        escapes = {code: f"\\u{code:04x}" for code in range(32)}
-        escapes.update({9: r"\t", 10: r"\n", 13: r"\r", 127: r"\u007f"})
-        display = value.translate(escapes)
-    else:
-        display = json.dumps(value, ensure_ascii=False)
-    return [f"{prefix}={display}"]
+def _failure(args: argparse.Namespace, kind: str, reason: str) -> dict[str, Any]:
+    targets = {
+        key: str(value) if isinstance(value, Path) else value
+        for key in (
+            "sources",
+            "sources_file",
+            "path",
+            "output",
+            "config",
+            "summary_prompt",
+            "config_sources",
+        )
+        if (value := getattr(args, key, None)) is not None
+    }
+    if (
+        getattr(args, "command", None) == "config"
+        and getattr(args, "config_command", None) == "init"
+    ):
+        targets["config"] = str(global_config_path())
+    if getattr(args, "command", None) == "prompt":
+        targets["prompt"] = str(user_prompts_root() / args.name)
+    return {
+        "status": "failed",
+        "error": reason,
+        "error_type": kind,
+        "targets": targets,
+        "counts": {"failed": 1},
+    }
 
 
 def main(argv: list[str] | None = None) -> int:
     _configure_console_encoding()
-    args = build_parser().parse_args(argv)
+    tokens = list(sys.argv[1:] if argv is None else argv)
+    options = tokens[: tokens.index("--")] if "--" in tokens else tokens
+    args = argparse.Namespace(json="--json" in options, quiet=False, verbose=False)
     _configure_logging(args)
-    logger.debug("Parsed command: %s", args.command)
     try:
+        build_parser().parse_args(tokens, namespace=args)
+        if args.quiet and args.verbose:
+            raise ArgumentFailure("--quiet and --verbose cannot be combined")
+        _configure_logging(args)
+        logger.debug("Parsed command: %s", args.command)
         if args.command == "prompt":
             logger.info(
                 "Initializing user summary prompt from profile %s: %s",
@@ -319,34 +347,35 @@ def main(argv: list[str] | None = None) -> int:
                 profile_name=args.summary_profile,
             )
             prompt = load_summary_prompt(path)
-            print(
-                json.dumps(
-                    {
-                        "status": "created",
-                        "path": str(path),
-                        "prompt_id": prompt.prompt_id,
-                        "prompt_version": prompt.version,
-                    },
-                    ensure_ascii=False,
-                )
+            emit(
+                {
+                    "status": "created",
+                    "path": str(path),
+                    "prompt_id": prompt.prompt_id,
+                    "prompt_version": prompt.version,
+                },
+                json_output=args.json,
             )
             return 0
         if args.command == "validate":
             logger.info("Validating summary note: %s", args.path)
             errors = validate_summary(args.path)
-            print(
-                json.dumps(
-                    {"kind": "summary", "valid": not errors, "errors": errors},
-                    ensure_ascii=False,
-                    indent=2,
-                )
+            emit(
+                {
+                    "kind": "summary",
+                    "valid": not errors,
+                    "errors": errors,
+                    "path": str(args.path),
+                    "counts": {"checked": 1, "failed": int(bool(errors))},
+                },
+                json_output=args.json,
             )
             if errors:
                 logger.error("Validation failed: %s", args.path)
                 return 1
             log_success(logger, "Validation succeeded: %s", args.path)
             return 0
-        if args.command == "config" and args.config_command == "init":
+        if args.command == "config" and getattr(args, "config_command", None) == "init":
             init_result = initialize_user_config(force=args.force)
             if init_result.status == "unchanged":
                 log_success(
@@ -361,22 +390,20 @@ def main(argv: list[str] | None = None) -> int:
                     init_result.status,
                     init_result.path,
                 )
-            print(
-                json.dumps(
-                    {
-                        "status": init_result.status,
-                        "path": str(init_result.path),
-                        "backup_path": (
-                            str(init_result.backup_path) if init_result.backup_path else None
-                        ),
-                    },
-                    ensure_ascii=False,
-                    indent=2,
-                )
+            emit(
+                {
+                    "status": init_result.status,
+                    "path": str(init_result.path),
+                    "backup_path": (
+                        str(init_result.backup_path) if init_result.backup_path else None
+                    ),
+                },
+                json_output=args.json,
             )
             return 0
         resolved = _resolved(args)
         config = resolved.config
+        args.config_sources = resolved.sources[1:]
         logger.debug("Configuration sources: %s", ", ".join(resolved.sources))
         if args.command == "config":
             prompt = load_summary_prompt(
@@ -389,11 +416,13 @@ def main(argv: list[str] | None = None) -> int:
             )
             values = public_config(config)
             generation_resolved = {
-                "summary": provider_for_config(config).plan() | {
+                "summary": provider_for_config(config).plan()
+                | {
                     "default_profile": config.generation.summary.default_profile,
                     "summary_profile": config.summary_profile,
                 },
-                "comparison": comparison_provider_for_config(config).plan() | {
+                "comparison": comparison_provider_for_config(config).plan()
+                | {
                     "default_profile": config.generation.comparison.default_profile,
                     "comparison_profile": comparison_profile.name,
                 },
@@ -451,10 +480,7 @@ def main(argv: list[str] | None = None) -> int:
                 "generationResolved": generation_resolved,
             }
             logger.info("Showing resolved configuration")
-            if args.json:
-                print(json.dumps(listing_result, ensure_ascii=False, indent=2))
-            else:
-                print("\n".join(config_lines(listing_result)))
+            emit(listing_result, json_output=args.json)
             return 0
         if args.command == "summarize":
             if args.conversation_date is not None and args.mode != "series":
@@ -466,12 +492,17 @@ def main(argv: list[str] | None = None) -> int:
             if args.comparison_profile is not None and args.mode != "compare":
                 raise ValueError("--comparison-profile requires --mode compare")
             sources = read_source_list(args.sources_file) if args.sources_file else args.sources
+            args.sources = sources
             if not sources:
                 raise ValueError("provide at least one SOURCE or --sources-file")
             if args.mode == "compare":
                 result = synthesize_compare(
-                    sources, config, title=args.title, explicit_output=args.output,
-                    overwrite=args.overwrite, dry_run=args.dry_run,
+                    sources,
+                    config,
+                    title=args.title,
+                    explicit_output=args.output,
+                    overwrite=args.overwrite,
+                    dry_run=args.dry_run,
                     comparison_profile=args.comparison_profile,
                     extend_sources=args.extend_sources,
                     context=args.context,
@@ -505,18 +536,29 @@ def main(argv: list[str] | None = None) -> int:
                 log_success(logger, "Summary is already current")
             else:
                 log_success(logger, "Summary completed successfully")
-            print(
-                json.dumps(
-                    result.model_dump(mode="json"),
-                    ensure_ascii=False,
-                    default=_json_default,
-                )
-            )
+            payload = result.model_dump(mode="json")
+            payload["counts"] = {"sources": len(sources), result.status: 1}
+            emit(payload, json_output=args.json)
             return 0
-    except (OSError, ValueError, RuntimeError) as exc:
+    except ArgumentFailure as exc:
+        logger.error("%s", exc.message)
+        emit(_failure(args, "argument_error", exc.message), json_output=args.json)
+        return 2
+    except KeyboardInterrupt:
+        logger.error("Interrupted")
+        emit(_failure(args, "interrupted", "Interrupted"), json_output=args.json)
+        return 130
+    except Exception as exc:
         logger.error("%s", exc)
         if getattr(args, "verbose", False):
             logger.debug("Detailed failure", exc_info=True)
+        failure = _failure(args, type(exc).__name__, str(exc))
+        if isinstance(exc, OSError) and exc.filename:
+            failure["path"] = str(exc.filename)
+        report_path = getattr(exc, "report_path", None)
+        if report_path is not None:
+            failure["report_path"] = str(report_path)
+        emit(failure, json_output=args.json)
         return 1
     return 2
 

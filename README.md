@@ -101,7 +101,7 @@ tkn-doc-summarizer --version
 tkn-doc-summarizer config init
 ```
 
-このコマンドにより、`~/.tkn/doc_summarizer/config.yaml` を作成し、結果の `status` と絶対パス `path` を JSON で表示します。
+このコマンドにより、`~/.tkn/doc_summarizer/config.yaml` を作成し、結果の `status` と絶対パス `path` を `key=value` で表示します。
 `~` は実行ユーザーのホームフォルダを示しています。Windows の場合、`C:\Users\<User Name>`です。 同じ内容のファイルがあれば `unchanged` となり、編集済みのファイルがあれば上書きせず停止します。
 すでに設定済みの場合は、そのファイルを使って次へ進めます。
 
@@ -133,7 +133,7 @@ generation:
 
 `summarize --profile conversation SOURCE` なら接続先と会話記録の形式をまとめて選べます。`--mode compare --profile NAME` は比較側のプロファイルを選びます。`bridge_profile` の省略／`null` は Bridge の `default_profile` に追従します。`bridge_profile: copilot-default` のように名前を明示すると、その接続先に固定します。指定するのは Bridge の設定名であり、モデル名や CLI のパスではありません。
 
-旧設定の `generation.active_profile`／`generation.profiles` やトップレベルの `model` 等は廃止しました。既存の設定は、新形式への手動移行が必要です。移行例は [設定と生成プロファイル](docs/reference/configuration.md#旧形式からの移行) を参照してください。
+設定形式は `schema_version: "2.0.0"` です。モード別の `generation.summary`／`generation.comparison` の構成は [設定と生成プロファイル](docs/reference/configuration.md) を参照してください。
 
 ファイルパスを直接指定する場合、既定の保存先を使えば設定ファイルの編集は不要です。
 要約は `~/.tkn/doc_summarizer/data/summaries/`、実行レポートは `~/.tkn/doc_summarizer/state/reports/` に保存します。
@@ -175,7 +175,7 @@ tkn-doc-summarizer summarize "<source-file>"
 ```
 
 生成結果を Markdown に整形し、形式を検証してから保存します。
-処理の進捗に続いて、標準出力へ結果の JSON を1件表示します。
+進捗は標準エラーへ、結果は標準出力へ1行1項目の `key=value` で表示します。以下は `--json` を指定したときの結果例です。
 次は新規作成時の結果の一部を示す説明例です。
 
 ```json
@@ -342,4 +342,23 @@ tkn-doc-summarizer --version
 - [テスト](tests/)：人工データによる動作確認。
 - [MIT License](LICENSE)。
 
-変更履歴と既存コマンドからの移行方法は [CHANGELOG](CHANGELOG.md) を参照してください。
+変更履歴は [CHANGELOG](CHANGELOG.md) を参照してください。
+
+## CLI の結果表示
+
+全コマンドの標準出力は、既定でコピー可能な `key=value` 一覧です。入れ子は `.`、配列は `[0]` などで表し、Windows パスを二重エスケープ・省略しません。`--json` はコマンドの前後や多段サブコマンドの途中に指定でき、1つの JSON document を返します。
+
+```shell
+tkn-doc-summarizer summarize "<source-file>" --dry-run
+tkn-doc-summarizer --json summarize "<source-file>" --dry-run
+tkn-doc-summarizer config --json list
+```
+
+機械処理する呼び出し元は必ず `--json` を付けてください。PowerShell で結果を読み取る例です。
+
+```powershell
+$result = tkn-doc-summarizer summarize "<source-file>" --dry-run --json | ConvertFrom-Json
+$result.path
+```
+
+`--quiet`／`--verbose` は標準エラーのログ量だけを変えます。パイプ・リダイレクト・TTY でも表示形式は変わりません。全詳細を両形式で表示するため、`--full-output` は設けていません。書き込み・dry-run・保存する JSON レポートは表示形式に依存しません。終了コードと失敗結果の項目は [表示と実行レポート](docs/reference/output-and-results.md#表示と実行レポート) を参照してください。

@@ -141,15 +141,11 @@ tkn-doc-summarizer summarize "<source-1>" "<source-2>" --mode compare --profile 
 `--model` と `--provider-timeout-seconds` はその実行の接続設定を上書きします。待機上限は共有設定を継承します。Bridge の組み込み値は300秒、指定できる範囲は0より大きく86400以下です。存在しないプロファイルや不正な値で、別の接続先へ自動で切り替えることはありません。
 `summarize`、`config list` のオプションはコマンド名の後ろに指定します。`--source-root` は複数回指定でき、設定ファイルの検索先一覧を置き換えます。`--model`、`--config`、`--reports-root`、入力サイズやタイムアウトの指定もその実行だけに適用されます。
 
-## 旧形式からの移行
+## 設定形式と検証
 
-旧設定形式の読み込み互換はありません。`schema_version: "1.0.0"`、`generation.active_profile`／`generation.profiles`／`generation.summary_profile`、トップレベルの `summary_profile`／`bridge_profile`／`model`／`provider`／`provider_timeout_seconds`／`codex_executable`／`codex_timeout_seconds` はエラーです。旧 CLI オプション `--codex-executable`／`--codex-timeout-seconds` も廃止しました。
+設定形式は `schema_version: "2.0.0"` です。要約用と比較用のプロファイルを `generation.summary`／`generation.comparison` に定義します。モデルなどの接続設定の上書きは、各プロファイルの `overrides` に指定します。接続先の種類や実行ファイルは Bridge 共有設定で管理します。
 
-既存の保存先などは維持したまま、`schema_version` を `"2.0.0"` に変更し、`generation` を上の例のように置き換えてください。旧 `active_profile` の選択名は要約側の `default_profile` に、各接続設定は要約側の `profiles` に移し、各プロファイル内に `summary_profile` を指定します。比較側は別に定義します。以前の英語比較を維持する場合は、比較側に `comparison_profile: compare-en` を明示します。
-
-トップレベルのモデル指定は選択するプロファイルの `overrides.model` に移します。CLI のパスは Bridge 共有設定の対象プロファイルの `cli.executable`（またはアプリ側の `overrides.cli.executable`）へ、タイムアウトは `timeout_seconds`（または `overrides.timeout_seconds`）へ移します。接続先の種類は Bridge 側の `provider` で指定します。
-
-設定ファイルは自動で書き換えません。`config init --force` はバックアップを作って同梱例へ置換するだけであり、設定内容を移行するコマンドではありません。
+未対応の設定形式・キー・CLI オプションはエラーになります。設定ファイルは読み込み時に書き換えません。`config init --force` はバックアップを作って同梱例へ置換します。
 
 ## 出典のパス形式
 

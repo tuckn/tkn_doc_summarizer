@@ -6,7 +6,12 @@ from pathlib import Path
 import pytest
 
 import doc_summarizer.config as config_module
-from doc_summarizer.cli import build_parser, config_lines, main
+from doc_summarizer.cli import build_parser, config_lines
+from doc_summarizer.cli import main as cli_main
+
+
+def main(argv: list[str]) -> int:
+    return cli_main(["--json", *argv])
 
 
 def test_help_names_url_behavior(capsys: object) -> None:
@@ -54,7 +59,7 @@ def test_unified_cli_rejects_invalid_inputs_without_writes(
         "--reports-root", str(tmp_path / "reports"), "--dry-run",
     ]) == 1
     captured = capsys.readouterr()
-    assert not captured.out
+    assert json.loads(captured.out)["status"] == "failed"
     assert message in captured.err
     assert not (tmp_path / "out").exists() and not (tmp_path / "reports").exists()
 
@@ -90,7 +95,7 @@ def test_extend_sources_is_rejected_in_series_mode(capsys: object) -> None:
     assert main(["summarize", "--extend-sources", "--dry-run"]) == 1
     captured = capsys.readouterr()  # type: ignore[attr-defined]
     assert "--extend-sources requires --mode compare" in captured.err
-    assert not captured.out
+    assert json.loads(captured.out)["status"] == "failed"
 
 
 def test_dry_run_outputs_only_json_to_stdout(
@@ -286,7 +291,7 @@ def test_rejects_ambiguous_list_or_profile_in_series(
     code = main(["summarize", "--sources-file", str(listing), "--dry-run", *extra])
     assert code == 1
     captured = capsys.readouterr()  # type: ignore[attr-defined]
-    assert not captured.out
+    assert json.loads(captured.out)["status"] == "failed"
 
 
 def test_list_duplicate_aliases_are_rejected(tmp_path: Path, capsys: object) -> None:
@@ -379,7 +384,7 @@ def test_config_init_refuses_to_replace_edited_file_without_force(
     assert main(["config", "init"]) == 1
 
     captured = capsys.readouterr()  # type: ignore[attr-defined]
-    assert captured.out == ""
+    assert json.loads(captured.out)["status"] == "failed"
     assert "re-run with --force" in captured.err
     assert target.read_text(encoding="utf-8") == "model: custom\n"
 
@@ -445,7 +450,7 @@ def test_config_list_is_read_only_and_reports_winning_sources(
     ]
     if json_output:
         args.append("--json")
-    assert main(args) == 0
+    assert cli_main(args) == 0
     captured = capsys.readouterr()
     assert captured.err == "[INFO] Showing resolved configuration\n"
     assert "\x1b" not in captured.out
@@ -531,7 +536,7 @@ def test_config_list_missing_explicit_config_returns_error(
 ) -> None:
     assert main(["config", "list", "--config", str(tmp_path / "absent.yaml"), *extra]) == 1
     captured = capsys.readouterr()
-    assert captured.out == ""
+    assert json.loads(captured.out)["status"] == "failed"
     assert "[ERROR]" in captured.err and "does not exist" in captured.err
 
 
@@ -613,7 +618,7 @@ def test_compare_rejects_summary_specific_overrides(
 ) -> None:
     assert main(["summarize", "one.md", "two.md", "--mode", "compare", *extra]) == 1
     captured = capsys.readouterr()
-    assert not captured.out and message in captured.err
+    assert json.loads(captured.out)["status"] == "failed" and message in captured.err
 
 
 @pytest.mark.parametrize("option", ["--codex-executable", "--codex-timeout-seconds"])

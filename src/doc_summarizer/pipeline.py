@@ -539,7 +539,9 @@ def summarize(
             error=str(exc),
             provider_error=exc.error_details if isinstance(exc, ProviderExecutionError) else None,
         )
-        raise RuntimeError(f"{exc}; report={report}") from exc
+        failure = RuntimeError(f"{exc}; report={report}")
+        failure.report_path = report  # type: ignore[attr-defined]
+        raise failure from exc
     if dry_run:
         return result
     report = _write_report(
@@ -959,7 +961,9 @@ def synthesize_series(
             provider_error=exc.error_details if isinstance(exc, ProviderExecutionError) else None,
             command="summarize",
         )
-        raise RuntimeError(f"{exc}; report={report}") from exc
+        failure = RuntimeError(f"{exc}; report={report}")
+        failure.report_path = report  # type: ignore[attr-defined]
+        raise failure from exc
     if dry_run:
         return result
     report = _write_report(
@@ -1404,7 +1408,9 @@ def synthesize_compare(
             provider_error=exc.error_details if isinstance(exc, ProviderExecutionError) else None,
             command="summarize",
         )
-        raise RuntimeError(f"{exc}; report={report}") from exc
+        failure = RuntimeError(f"{exc}; report={report}")
+        failure.report_path = report  # type: ignore[attr-defined]
+        raise failure from exc
     if dry_run:
         return result
     report = _write_report(
