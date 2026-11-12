@@ -1,4 +1,4 @@
-schema_version: "2.0.0"
+schema_version: "3.0.0"
 
 # URL inputs are resolved to Markdown files by recursively searching these roots.
 # File-path inputs do not require source_roots.
@@ -14,22 +14,49 @@ max_total_input_bytes: 8000000
 # Frontmatter local source path format: native or file-uri.
 source_path_format: native
 
+# Generative AI connections live in this file. No GenAI Bridge config file is read.
+# CLI providers reuse their existing login; tokens and passwords do not belong here.
+genai_profiles:
+  codex-default:
+    provider: codex
+    model: null  # null: use the provider CLI's default model.
+  claude-default:
+    provider: claude-code
+    model: null
+  copilot-default:
+    provider: github-copilot
+    model: null
+  antigravity-default:
+    provider: antigravity
+    model: null
+#  local-gemma:
+#    provider: ollama
+#    model: your-local-model
+#    timeout_seconds: 1800
+#    ollama:
+#      base_url: http://127.0.0.1:11434
+#  azure-quality:
+#    provider: azure-openai
+#    model: your-deployment-name
+#    azure:
+#      endpoint: https://your-resource.openai.azure.com/openai/v1
+#      auth: api_key
+#      api_key_env: AZURE_OPENAI_API_KEY
+
 generation:
-  # Connection/model/authentication remain in ~/.tkn/genai_bridge/config.yaml.
   # --profile selects an application profile in the current mode's group.
-  # bridge_profile: null (or omitted) follows Bridge's default_profile.
+  # genai_profile selects a connection from genai_profiles above.
   summary:  # summarize --mode series (one or multiple sources).
     default_profile: default
     profiles:
       default:
-        bridge_profile: null
+        genai_profile: codex-default
         summary_profile: default-ja
       conversation:
-        bridge_profile: null
+        genai_profile: codex-default
         summary_profile: conversation-ja
-      # Define claude-default in Bridge before selecting this profile.
       # meeting:
-      #   bridge_profile: claude-default
+      #   genai_profile: claude-default
       #   summary_profile: meeting-minutes-ja
       #   overrides:
       #     timeout_seconds: 1800
@@ -37,10 +64,10 @@ generation:
     default_profile: default
     profiles:
       default:
-        bridge_profile: null
+        genai_profile: codex-default
         comparison_profile: compare-ja
       claims:
-        bridge_profile: null
+        genai_profile: codex-default
         comparison_profile: claims-ja
 
 # null uses the selected profile's packaged prompt. A filename is resolved below

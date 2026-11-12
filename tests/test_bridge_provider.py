@@ -10,9 +10,15 @@ from tkn_genai_bridge import GenerationRequest, Profile, ProviderError, Runtime
 from tkn_genai_bridge.providers.base import ProviderResponse
 
 import doc_summarizer.providers.bridge as bridge_module
-from doc_summarizer.config import AppConfig
+from doc_summarizer.config import AppConfig, resolve_config
 from doc_summarizer.models import ComparisonRequest, DocumentSource, SummaryRequest
-from doc_summarizer.pipeline import summarize, synthesize_compare, synthesize_series
+from doc_summarizer.pipeline import (
+    comparison_provider_for_config,
+    provider_for_config,
+    summarize,
+    synthesize_compare,
+    synthesize_series,
+)
 from doc_summarizer.prompting import COMPARISON_PROMPT_ENVELOPE_VERSION, PROMPT_ENVELOPE_VERSION
 from doc_summarizer.providers import (
     BridgeComparisonProvider,
@@ -91,8 +97,8 @@ class FakeBackend:
 def use_backend(monkeypatch: pytest.MonkeyPatch, backend: FakeBackend) -> list[Runtime]:
     runtimes: list[Runtime] = []
 
-    def runtime(profile: Profile) -> Runtime:
-        result = Runtime(profile, backend=backend)
+    def runtime(profile: Profile, **kwargs: Any) -> Runtime:
+        result = Runtime(profile, backend=backend, **kwargs)
         runtimes.append(result)
         return result
 
@@ -236,10 +242,10 @@ def test_pipeline_records_success_and_failure(
     before = generated.path.read_bytes()
 
     def fail_load(*args: Any, **kwargs: Any) -> Any:
-        raise AssertionError("unchanged output must not load Bridge settings")
+        raise AssertionError("unchanged output must not resolve connection settings")
 
     with monkeypatch.context() as context:
-        context.setattr(bridge_module, "load_profile", fail_load)
+        context.setattr(bridge_module._BridgeConnection, "connection", fail_load)
         assert run(dry_run=True).status == "unchanged"
     backend.error = True
     with pytest.raises(RuntimeError, match="timeout"):
@@ -311,12 +317,10 @@ def test_plan_does_not_start_process_or_transport(
         "azure-openai",
     ],
 )
-def test_shared_profile_selection_and_offline_planning(
+def test_app_profile_selection_and_offline_planning(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
     provider: str,
 ) -> None:
-    import tkn_genai_bridge.config as config_module
     import yaml
 
     settings: dict[str, Any] = {"provider": provider, "timeout_seconds": 71}
@@ -326,23 +330,25 @@ def test_shared_profile_selection_and_offline_planning(
         settings.update(
             model="deployment", azure={"endpoint": "https://example.openai.azure.com/openai/v1"}
         )
-    path = tmp_path / "bridge.yaml"
-    path.write_text(
-        yaml.safe_dump({"schema_version": "1.1.0", "profiles": {"selected": settings}}),
-        encoding="utf-8",
-    )
-    monkeypatch.setattr(config_module, "user_config_path", lambda: path)
-    # Bridge must not consume this application's project config.
-    app_path = tmp_path / ".tkn" / "config.yaml"
-    app_path.parent.mkdir()
-    app_path.write_text("output_root: output\n", encoding="utf-8")
-    monkeypatch.chdir(tmp_path)
-    plan = BridgeProvider(bridge_profile="selected", overrides={"timeout_seconds": 81}).plan()
-    assert plan["provider"] == provider
-    assert plan["profile_name"] == "selected"
-    assert plan["timeout_seconds"] == 81
-    assert plan["will_call_provider"] is False
-    assert yaml.safe_load(path.read_text())["profiles"]["selected"]["timeout_seconds"] == 71
+    path = tmp_path / "config.yaml"
+    path.write_text(yaml.safe_dump({
+        "schema_version": "3.0.0",
+        "genai_profiles": {"selected": settings},
+        "generation": {kind: {"profiles": {"default": {
+            "genai_profile": "selected", "overrides": {"timeout_seconds": 81},
+        }}} for kind in ("summary", "comparison")},
+    }), encoding="utf-8")
+    before = path.read_bytes()
+    config = resolve_config(cwd=tmp_path, explicit_config=path).config
+    for plan in (
+        provider_for_config(config).plan(), comparison_provider_for_config(config).plan(),
+    ):
+        assert plan["provider"] == provider
+        assert plan["profile_name"] == "selected"
+        assert plan["timeout_seconds"] == 81
+        assert plan["will_call_provider"] is False
+    assert config.genai_profiles["selected"].timeout_seconds == 71
+    assert path.read_bytes() == before
 
 
 @pytest.mark.parametrize(
@@ -355,32 +361,29 @@ def test_shared_profile_selection_and_offline_planning(
     ],
 )
 def test_invalid_bridge_overrides_fail_before_generation(overrides: dict[str, Any]) -> None:
-    with pytest.raises(ProviderExecutionError):
+    with pytest.raises(ProviderExecutionError) as caught:
         BridgeProvider(overrides=overrides).plan()
+    assert caught.value.error_details["code"] == "invalid_config"
 
 
-def test_unknown_shared_profile_does_not_fallback() -> None:
-    with pytest.raises(ProviderExecutionError):
-        BridgeProvider(bridge_profile="absent").plan()
+def test_unknown_genai_profile_does_not_fallback() -> None:
+    profiles = {"custom": Profile(provider="claude-code")}
+    with pytest.raises(ProviderExecutionError, match="genai_profiles: absent") as caught:
+        BridgeProvider(genai_profile="absent", genai_profiles=profiles).plan()
+    assert caught.value.error_details["code"] == "unknown_profile"
+    # Built-in names are defaults of the app config, not an implicit fallback.
+    with pytest.raises(ProviderExecutionError, match="codex-default"):
+        BridgeProvider(genai_profiles=profiles).plan()
 
 
 @pytest.mark.parametrize("provider_type", [BridgeProvider, BridgeComparisonProvider])
-def test_provider_defaults_follow_shared_profile(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+def test_provider_defaults_use_builtin_codex_profile(
     provider_type: type[BridgeProvider] | type[BridgeComparisonProvider],
 ) -> None:
-    import tkn_genai_bridge.config as config_module
-    import yaml
-
-    path = tmp_path / "bridge.yaml"
-    path.write_text(yaml.safe_dump({
-        "schema_version": "1.1.0", "default_profile": "selected",
-        "profiles": {"selected": {"provider": "github-copilot"}},
-    }), encoding="utf-8")
-    monkeypatch.setattr(config_module, "user_config_path", lambda: path)
     plan = provider_type().plan()
-    assert plan["profile_name"] == "selected"
-    assert plan["provider"] == "github-copilot"
+    assert plan["profile_name"] == "codex-default"
+    assert plan["provider"] == "codex"
+    assert plan["model"] is None
 
 
 def test_explicit_model_reuse_supports_non_codex_and_checks_provider(
@@ -395,7 +398,7 @@ def test_explicit_model_reuse_supports_non_codex_and_checks_provider(
         generation={
             "summary": {"profiles": {
                 "default": {
-                    "bridge_profile": "codex-default",
+                    "genai_profile": "codex-default",
                     "overrides": {"provider": "claude-code", "model": "reported-model"},
                 }}
             }
@@ -439,7 +442,8 @@ def test_comparison_reuse_uses_only_comparison_connection(
         output_root=tmp_path / "out", reports_root=tmp_path / "reports",
         generation={
             "summary": {"profiles": {"default": {
-                "bridge_profile": "missing-summary-bridge", "summary_profile": "conversation-ja",
+                "genai_profile": "missing-summary-connection",
+                "summary_profile": "conversation-ja",
                 "overrides": {"model": "unrelated-summary-model"},
             }}},
             "comparison": {"profiles": {"default": {

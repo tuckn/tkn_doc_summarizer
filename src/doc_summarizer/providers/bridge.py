@@ -3,23 +3,30 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
+from pydantic import ValidationError
 from tkn_genai_bridge import (
+    ConfigError,
     GenAIError,
     GenerationRequest,
     GenerationResult,
     Profile,
     ProviderError,
     Runtime,
-    load_profile,
 )
 from tkn_genai_bridge.models import PROVIDER_NAMES
 
 from doc_summarizer.comparison_resources import load_comparison_profile
-from doc_summarizer.config import DEFAULT_SUMMARY_PROFILE
+from doc_summarizer.config import (
+    DEFAULT_GENAI_PROFILE,
+    DEFAULT_SUMMARY_PROFILE,
+    _merge,
+    default_genai_profiles,
+)
 from doc_summarizer.conversation import request_sources, validate_conversation_document
 from doc_summarizer.meeting_minutes import validate_meeting_minutes_document
 from doc_summarizer.models import (
@@ -69,15 +76,36 @@ class _BridgeConnection:
     def __init__(
         self,
         *,
-        bridge_profile: str | None = None,
+        genai_profile: str = DEFAULT_GENAI_PROFILE,
+        genai_profiles: Mapping[str, Profile] | None = None,
         overrides: dict[str, Any] | None = None,
     ) -> None:
-        self.bridge_profile = bridge_profile
+        self.genai_profile = genai_profile
+        self.genai_profiles = (
+            dict(genai_profiles) if genai_profiles is not None else default_genai_profiles()
+        )
         self.overrides = deepcopy(overrides or {})
 
     def connection(self) -> Profile:
-        # Reusing an unchanged note does not need shared settings or a runtime.
-        return load_profile(self.bridge_profile, overrides=self.overrides)
+        """Resolve the app-owned connection; Bridge configuration files are never read."""
+        # Reusing an unchanged note does not need connection settings or a runtime.
+        try:
+            profile = self.genai_profiles[self.genai_profile]
+        except KeyError:
+            raise ConfigError(
+                f"GenAI profile is not defined in genai_profiles: {self.genai_profile}",
+                code="unknown_profile",
+            ) from None
+        if not self.overrides:
+            return profile
+        try:
+            return Profile.model_validate(_merge(profile.model_dump(), self.overrides))
+        except ValidationError:
+            # Pydantic errors can include input values; keep the failure content-free.
+            raise ConfigError(
+                f"invalid overrides for GenAI profile: {self.genai_profile}",
+                code="invalid_config",
+            ) from None
 
     def requested_generator(self, model: str) -> str:
         return f"{PROVIDER_NAMES[self.connection().provider]} ({model})"
@@ -85,7 +113,7 @@ class _BridgeConnection:
     def _plan(self, request: GenerationRequest, *, complete: bool) -> dict[str, Any]:
         try:
             connection = self.connection()
-            with Runtime(connection) as runtime:
+            with Runtime(connection, profile_name=self.genai_profile) as runtime:
                 plan = runtime.plan(request).model_dump(mode="json")
         except GenAIError as exc:
             raise _execution_error(exc) from exc
@@ -111,7 +139,7 @@ class _BridgeConnection:
 
     def _generate(self, request: GenerationRequest) -> GenerationResult:
         try:
-            with Runtime(self.connection()) as runtime:
+            with Runtime(self.connection(), profile_name=self.genai_profile) as runtime:
                 return runtime.generate(request)
         except GenAIError as exc:
             raise _execution_error(exc) from exc
@@ -145,13 +173,15 @@ class BridgeProvider(_BridgeConnection):
     def __init__(
         self,
         *,
-        bridge_profile: str | None = None,
+        genai_profile: str = DEFAULT_GENAI_PROFILE,
+        genai_profiles: Mapping[str, Profile] | None = None,
         overrides: dict[str, Any] | None = None,
         summary_profile: str = DEFAULT_SUMMARY_PROFILE,
         summary_prompt: Path | None = None,
     ) -> None:
         super().__init__(
-            bridge_profile=bridge_profile,
+            genai_profile=genai_profile,
+            genai_profiles=genai_profiles,
             overrides=overrides,
         )
         self.prompt = load_summary_prompt(summary_prompt, profile_name=summary_profile)
@@ -211,13 +241,15 @@ class BridgeComparisonProvider(_BridgeConnection):
     def __init__(
         self,
         *,
-        bridge_profile: str | None = None,
+        genai_profile: str = DEFAULT_GENAI_PROFILE,
+        genai_profiles: Mapping[str, Profile] | None = None,
         overrides: dict[str, Any] | None = None,
         summary_profile: str = DEFAULT_SUMMARY_PROFILE,
         comparison_profile: str | None = None,
     ) -> None:
         super().__init__(
-            bridge_profile=bridge_profile,
+            genai_profile=genai_profile,
+            genai_profiles=genai_profiles,
             overrides=overrides,
         )
         self.profile = load_comparison_profile(summary_profile, profile_name=comparison_profile)

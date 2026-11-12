@@ -92,7 +92,10 @@ def _config(tmp_path: Path) -> AppConfig:
 
 def _backend(monkeypatch: pytest.MonkeyPatch, count: int = 4) -> ConversationBackend:
     backend = ConversationBackend(count)
-    monkeypatch.setattr(bridge_module, "Runtime", lambda profile: Runtime(profile, backend=backend))
+    monkeypatch.setattr(
+        bridge_module, "Runtime",
+        lambda profile, **kwargs: Runtime(profile, backend=backend, **kwargs),
+    )
     return backend
 
 

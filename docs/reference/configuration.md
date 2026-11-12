@@ -42,25 +42,26 @@ generationResolved.comparison.will_call_provider=false
 
 | キー | 既定値 | 役割 |
 | --- | --- | --- |
-| `schema_version` | `"2.0.0"` | アプリ設定形式の版。Bridge や生成ノートの版とは別 |
+| `schema_version` | `"3.0.0"` | アプリ設定形式の版。Bridge や生成ノートの版とは別 |
 | `source_roots` | `[]` | URL から保存済み Markdown を探すフォルダ。空なら URL 検索不可 |
 | `output_root` | `~/.tkn/doc_summarizer/data/summaries` | 自動命名するノートの保存先と既存ノートの検索先 |
 | `reports_root` | `~/.tkn/doc_summarizer/state/reports` | JSON 実行レポートの保存先 |
 | `max_input_bytes` | `2000000` | 1ソースファイル、および結合後 context それぞれの上限バイト数。1以上 |
 | `max_total_input_bytes` | `8000000` | 複数文書を渡す1回の `summarize` のソース＋context 合計入力上限バイト数。1以上 |
 | `source_path_format` | `native` | 出典参照の形式。`native` または `file-uri` |
+| `genai_profiles.<name>` | `codex-default` など4件 | 生成 AI の接続先・モデル。[生成 AI の接続先](#生成-ai-の接続先) を参照 |
 | `generation.summary.default_profile` | `default` | 単一・複数入力の要約に使うアプリ内プロファイル |
-| `generation.summary.profiles.<name>.bridge_profile` | `null` | Bridge 共有設定の参照先。省略／`null` は Bridge の `default_profile` |
+| `generation.summary.profiles.<name>.genai_profile` | `codex-default` | 使用する `genai_profiles` の名前 |
 | `generation.summary.profiles.<name>.summary_profile` | `default-ja` | 要約の出力形式。`default-ja` / `default-en` / `conversation-ja` / `meeting-minutes-ja` |
 | `generation.comparison.default_profile` | `default` | 比較に使うアプリ内プロファイル |
-| `generation.comparison.profiles.<name>.bridge_profile` | `null` | 比較用の Bridge 共有設定の参照先。省略／`null` は Bridge の `default_profile` |
+| `generation.comparison.profiles.<name>.genai_profile` | `codex-default` | 比較に使う `genai_profiles` の名前 |
 | `generation.comparison.profiles.<name>.comparison_profile` | `compare-ja` | 比較の出力形式。`compare-ja` / `compare-en` / `claims-ja` |
-| `generation.<summary または comparison>.profiles.<name>.overrides` | `{}` | このアプリでの接続設定上書き |
+| `generation.<summary または comparison>.profiles.<name>.overrides` | `{}` | 選択した接続先の設定をこのプロファイルだけ上書き |
 | `summary_prompt` | `null` | 組み込み指示を使用。ファイル名または絶対パスで変更 |
 
 `source_roots: []` は下位層の検索先一覧を空にします。`summary_prompt` や Bridge の `model` に未指定を表す場合は、空文字ではなく YAML の `null` を使います。未知のキー、不正な型・範囲、存在しない `--config`、読み込めないプロンプトはエラーです。
 
-`output_root` を変えると以前の保存先は検索しなくなり、別のノートが生成されることがあります。既存ノートの再利用では、入力・要約リソース・明示したモデルなどを照合します。Bridge の共有設定だけを変更しても既存ノートは自動再生成しません。新しい接続条件で再生成するには `--overwrite` を指定します。
+`output_root` を変えると以前の保存先は検索しなくなり、別のノートが生成されることがあります。既存ノートの再利用では、入力・要約リソース・明示したモデルなどを照合します。`genai_profiles` の接続設定だけを変更しても既存ノートは自動再生成しません。新しい接続条件で再生成するには `--overwrite` を指定します。
 
 次は保存先と URL 検索先を変える設定の抜粋です。`config init` が作ったファイルの該当項目を置き換え、ほかの項目を残します。ファイルパスを直接指定する場合、`source_roots` は使いません。
 
@@ -71,59 +72,75 @@ source_roots:
   - 'C:\path\to\web-clips'
 ```
 
-## アプリ設定と Bridge 共有設定
+## 生成 AI の接続先
 
 | 種類 | ファイル・設定 | 選ぶもの | その実行だけ変更 |
 | --- | --- | --- | --- |
 | アプリの要約プロファイル | `generation.summary.profiles.<name>.summary_profile` | 言語・生成指示・出力形式 | `--summary-profile`（series のみ） |
 | アプリの比較プロファイル | `generation.comparison.profiles.<name>.comparison_profile` | 比較の生成指示・出力形式 | `--comparison-profile`（compare のみ） |
 | アプリの既定プロファイル | `generation.<summary または comparison>.default_profile` | 各モードの `profiles` の項目 | `--profile` |
-| Bridge の接続名 | 各プロファイルの `bridge_profile` | 共有設定の接続先・モデル・認証 | `--bridge-profile` |
-| 接続設定の上書き | 各プロファイルの `overrides` | 選択した Bridge 接続設定の一部 | `--model` など |
+| 接続先の名前 | 各プロファイルの `genai_profile` | `genai_profiles` の接続先・モデル | `--genai-profile` |
+| 接続設定の上書き | 各プロファイルの `overrides` | 選択した接続設定の一部 | `--model` など |
 
-Bridge の共有設定は `~/.tkn/genai_bridge/config.yaml` です。共有設定がなくても組み込みの `codex-default` を利用できます。
+接続先・モデルは、この設定ファイルのトップレベル `genai_profiles` で管理します。
+Bridge の設定ファイル `~/.tkn/genai_bridge/config.yaml` と、Bridge としての作業フォルダの設定は読みません。検証した接続設定を Bridge の `Runtime` へ直接渡すため、本 CLI のインストールだけで動作します。
+作業フォルダの `./.tkn/config.yaml` は、本 CLI の設定として読み込みます。
 
-`bridge_profile` を省略、または `null` にすると、Bridge 側の `default_profile` を使います。Bridge の既定値を変更すると、このアプリも次の実行から追従します。`bridge_profile: copilot-default` のように名前を明示した場合は、その接続先に固定します。空文字や空白だけの指定はエラーです。`--bridge-profile NAME` はその実行だけ接続先を固定します。
-
-Bridge の共有設定を明示する場合の最小例です。既存の設定があれば、利用するプロファイルを選んでください。
+組み込みの接続先は次の4件です。`model: null` は各 CLI の既定モデルを使い、CLI の既存のログイン状態で認証します。
 
 ```yaml
-schema_version: "1.1.0"
-default_profile: codex-default
-profiles:
+genai_profiles:
   codex-default:
     provider: codex
     model: null
-    timeout_seconds: 1800
+  claude-default:
+    provider: claude-code
+    model: null
+  copilot-default:
+    provider: github-copilot
+    model: null
+  antigravity-default:
+    provider: antigravity
+    model: null
 ```
 
-以下は本 CLI 側の設定の抜粋です。ほかの設定を保持して `generation` 以下を編集してください。
+接続先は名前・項目単位で設定の層をまたいでマージします。たとえばユーザー設定で `codex-default` の `model` だけを指定すると、`provider` などは組み込み値を保ちます。新しい名前を追加して、Ollama や Azure OpenAI の接続先も定義できます。
+各接続先の項目は、固定依存版 Bridge の `Profile` に従います（`provider`、`model`、`reasoning_effort`、`timeout_seconds`、`max_output_tokens`、`local_only`、`cli`、`ollama`、`azure`、`pricing`）。未知の項目や不正な型・値はエラーです。値の意味は [Bridge の設定仕様](https://github.com/tuckn/tkn_genai_bridge/blob/27ac8e48c8038ee86e029f5b845cd41f6da121af/docs/reference/configuration.md) を参照してください。
+`cli.executable` の相対パスは、その値を書いた設定ファイルのフォルダを基準に解決します。`codex` のような区切り文字を含まないコマンド名は PATH から探します。
+秘密値は書かず、認証済み CLI や `azure.api_key_env` などの環境変数名を指定します。
+
+`genai_profile` の既定値は `codex-default` です。空文字や空白だけの指定、`null` はエラーです。`genai_profiles` にない名前は生成の準備時（dry-run や `config list` を含む）にエラーとなり、別の接続先へ切り替えません。`--genai-profile NAME` はその実行だけ接続先を変更します。
+
+以下は本 CLI 側の設定の抜粋です。ほかの設定を保持して `genai_profiles` と `generation` 以下を編集してください。
 
 ```yaml
+genai_profiles:
+  claude-long:
+    provider: claude-code
+    model: null
+    timeout_seconds: 1800
 generation:
   summary:
     default_profile: default
     profiles:
       default:
-        bridge_profile: null
+        genai_profile: codex-default
         summary_profile: default-ja
       conversation:
-        bridge_profile: claude-default
+        genai_profile: claude-long
         summary_profile: conversation-ja
-        overrides:
-          timeout_seconds: 1800
   comparison:
     default_profile: default
     profiles:
       default:
-        bridge_profile: null
+        genai_profile: codex-default
         comparison_profile: compare-ja
       claims:
-        bridge_profile: claude-default
+        genai_profile: claude-default
         comparison_profile: claims-ja
+        overrides:
+          timeout_seconds: 1800
 ```
-
-`claude-default` は Bridge 側に定義してから使います。モデル・認証・実行ファイル・`local_only` は [Bridge の設定仕様](https://github.com/tuckn/tkn_genai_bridge/blob/e0dfc7524c0d74deaad5768d7dd5611b835a6e8b/docs/reference/configuration.md)に従います。Bridge は作業フォルダの `./.tkn/config.yaml` を読みません。
 
 Windows の npm 版 GitHub Copilot CLI は、Bridge が PATH 上の `copilot.cmd`／`copilot.ps1` と既知のパッケージ構成からネイティブの `copilot.exe` を自動解決します。通常は `cli.executable` の絶対パス指定は不要です。明示設定した実行ファイルは引き続き優先します。対応する本体がない場合や未対応の構成では、探索先・理由・対処方法を示して停止します。`config list` や通常の `--dry-run` は実行ファイルの存在・起動・認証までは確認しません。
 
@@ -134,18 +151,25 @@ tkn-doc-summarizer config list --mode compare --profile claims
 tkn-doc-summarizer summarize "<source-1>" "<source-2>" --mode compare --profile claims --dry-run
 ```
 
-`--mode series`（既定）は `generation.summary`、`--mode compare` は `generation.comparison` を使います。`--profile NAME` はそのグループのプロファイルを選び、接続先と出力形式をまとめて切り替えます。その後に `--bridge-profile`、`--model`、`--provider-timeout-seconds`、`--summary-profile`／`--comparison-profile` の上書きを適用します。別モードの設定には影響しません。存在しないプロファイル名はエラーです。
+`--mode series`（既定）は `generation.summary`、`--mode compare` は `generation.comparison` を使います。`--profile NAME` はそのグループのプロファイルを選び、接続先と出力形式をまとめて切り替えます。その後に `--genai-profile`、`--model`、`--provider-timeout-seconds`、`--summary-profile`／`--comparison-profile` の上書きを適用します。別モードの設定には影響しません。存在しないプロファイル名はエラーです。
 
 `config list` は常に両モードを表示します。`--profile` 等の上書き対象は既定で要約側です。比較側を確認・上書きするには `--mode compare` を指定します。
 
-`--model` と `--provider-timeout-seconds` はその実行の接続設定を上書きします。待機上限は共有設定を継承します。Bridge の組み込み値は300秒、指定できる範囲は0より大きく86400以下です。存在しないプロファイルや不正な値で、別の接続先へ自動で切り替えることはありません。
+`--model` と `--provider-timeout-seconds` はその実行の接続設定を上書きします。待機上限は選択した `genai_profiles` の `timeout_seconds` を継承します。組み込み値は300秒、指定できる範囲は0より大きく86400以下です。存在しないプロファイルや不正な値で、別の接続先へ自動で切り替えることはありません。
 `summarize`、`config list` のオプションはコマンド名の後ろに指定します。`--source-root` は複数回指定でき、設定ファイルの検索先一覧を置き換えます。`--model`、`--config`、`--reports-root`、入力サイズやタイムアウトの指定もその実行だけに適用されます。
 
 ## 設定形式と検証
 
-設定形式は `schema_version: "2.0.0"` です。要約用と比較用のプロファイルを `generation.summary`／`generation.comparison` に定義します。モデルなどの接続設定の上書きは、各プロファイルの `overrides` に指定します。接続先の種類や実行ファイルは Bridge 共有設定で管理します。
+設定形式は `schema_version: "3.0.0"` です。接続先を `genai_profiles` に、要約用と比較用のプロファイルを `generation.summary`／`generation.comparison` に定義します。モデルなどの接続設定の上書きは、各プロファイルの `overrides` に指定します。`schema_version` を省略した設定ファイルは現行の形式として読みます。
 
 未対応の設定形式・キー・CLI オプションはエラーになります。設定ファイルは読み込み時に書き換えません。`config init --force` はバックアップを作って同梱例へ置換します。
+
+`schema_version: "2.0.0"` の設定は読み込まず、移行方法を表示して停止します。移行するには次のように変更します。
+
+1. `schema_version` を `"3.0.0"` にします。
+2. Bridge の設定で使っていた接続先を、トップレベルの `genai_profiles` に同じ名前で定義します。組み込みの4件だけを使う場合は省略できます。
+3. 各プロファイルの `bridge_profile` を `genai_profile` に改名します。`null` や省略で Bridge の `default_profile` に従っていた場合は、使う名前を明示します（省略時は `codex-default`）。
+4. `--bridge-profile` は `--genai-profile` に置き換えます。
 
 ## 出典のパス形式
 

@@ -56,7 +56,7 @@ CLI が入力の特定、生成の依頼、検証、保存を順に行い、生�
 flowchart LR
     Input[("ファイルパスまたは保存済み記事の URL")] --> Resolve["ローカル文書を特定して読む"]
     Resolve --> Generate["Bridge へ構造化生成を依頼"]
-    Connection[("Bridge 共有設定：接続先・モデル・認証")] --> Generate
+    Connection[("genai_profiles：接続先・モデル")] --> Generate
     Generate --> AI["選択した CLI / API で生成する"]
     AI --> Generate
     Profile[("要約プロファイル：言語・生成指示・出力形式")] --> Generate
@@ -66,7 +66,7 @@ flowchart LR
 
 要約プロファイルは、言語・生成指示・出力形式をまとめた設定です。
 `default-ja` は日本語、`default-en` は英語の記事要約、`conversation-ja` は日本語の会話記録、`meeting-minutes-ja` は会議後の議事メモを作ります。
-生成に使う接続先・モデルは Bridge の共有設定で指定し、アプリの `generation.summary.profiles`／`generation.comparison.profiles` から参照します。それぞれのプロファイルに接続先と出力形式をまとめます。
+生成に使う接続先・モデルは本 CLI の設定ファイルの `genai_profiles` に定義し、`generation.summary.profiles`／`generation.comparison.profiles` から参照します。それぞれのプロファイルに接続先と出力形式をまとめます。
 要約ノートのほかに、成功・失敗や生成条件を記録した JSON の実行レポートを保存します。
 
 ## セットアップ
@@ -75,7 +75,7 @@ flowchart LR
 
 - Python 3.11 以上と [uv](https://docs.astral.sh/uv/)。
 - 要約する UTF-8 のテキスト文書と、要約を書き込める保存先。
-- 要約に使う CLI または API の利用準備。Bridge 共有設定の `default_profile` に従います。共有設定がなければ認証済みの Codex CLI を使います。
+- 要約に使う CLI または API の利用準備。既定では認証済みの Codex CLI を使います。
 
 主対象は Windows 11 です。
 以下のコマンドはターミナルで実行し、Windows 形式の例示パスを実際のパスに置き換えてください。
@@ -107,33 +107,41 @@ tkn-doc-summarizer config init
 
 ### 接続先と保存先を確認する
 
-接続先・モデル・認証は Bridge の共有設定 `~/.tkn/genai_bridge/config.yaml` にまとめます。
-接続先の既定値は Bridge 共有設定の `default_profile` に従います。共有設定がない場合は組み込みの `codex-default` を使います。
-本 CLI は、要約では `generation.summary`、比較では `generation.comparison` の `default_profile` を使います。各 `profiles` の `bridge_profile` で Bridge の接続先、`summary_profile`／`comparison_profile` で出力形式を指定します。
+接続先・モデルは本 CLI の設定ファイルの `genai_profiles` に定義します。
+Bridge の設定ファイル `~/.tkn/genai_bridge/config.yaml` は読まないため、本 CLI のインストールだけで動作します。
+組み込みの接続先は `codex-default`、`claude-default`、`copilot-default`、`antigravity-default` で、既定は `codex-default` です。
+本 CLI は、要約では `generation.summary`、比較では `generation.comparison` の `default_profile` を使います。各 `profiles` の `genai_profile` で `genai_profiles` の接続先、`summary_profile`／`comparison_profile` で出力形式を指定します。
 
 ```yaml
-schema_version: "2.0.0"
+schema_version: "3.0.0"
+genai_profiles:
+  codex-default:
+    provider: codex
+    model: null
+  claude-default:
+    provider: claude-code
+    model: null
 generation:
   summary:
     default_profile: default
     profiles:
       default:
-        bridge_profile: null
+        genai_profile: codex-default
         summary_profile: default-ja
       conversation:
-        bridge_profile: null
+        genai_profile: claude-default
         summary_profile: conversation-ja
   comparison:
     default_profile: default
     profiles:
       default:
-        bridge_profile: null
+        genai_profile: codex-default
         comparison_profile: compare-ja
 ```
 
-`summarize --profile conversation SOURCE` なら接続先と会話記録の形式をまとめて選べます。`--mode compare --profile NAME` は比較側のプロファイルを選びます。`bridge_profile` の省略／`null` は Bridge の `default_profile` に追従します。`bridge_profile: copilot-default` のように名前を明示すると、その接続先に固定します。指定するのは Bridge の設定名であり、モデル名や CLI のパスではありません。
+`summarize --profile conversation SOURCE` なら接続先と会話記録の形式をまとめて選べます。`--mode compare --profile NAME` は比較側のプロファイルを選びます。`genai_profile` に指定するのは `genai_profiles` の名前であり、モデル名や CLI のパスではありません。未定義の名前はエラーになり、別の接続先へ切り替えません。CLI の接続先は既存のログイン状態を使うため、トークンやパスワードは設定ファイルに書きません。
 
-設定形式は `schema_version: "2.0.0"` です。モード別の `generation.summary`／`generation.comparison` の構成は [設定と生成プロファイル](docs/reference/configuration.md) を参照してください。
+設定形式は `schema_version: "3.0.0"` です。モード別の `generation.summary`／`generation.comparison` の構成と `genai_profiles` の項目は [設定と生成プロファイル](docs/reference/configuration.md) を参照してください。
 
 ファイルパスを直接指定する場合、既定の保存先を使えば設定ファイルの編集は不要です。
 要約は `~/.tkn/doc_summarizer/data/summaries/`、実行レポートは `~/.tkn/doc_summarizer/state/reports/` に保存します。
@@ -289,7 +297,7 @@ URL 入力の Frontmatter、出典の順序、保存先の変更、再生成と�
 
 設定は組み込み値、ユーザー設定 `~/.tkn/doc_summarizer/config.yaml`、作業フォルダの `./.tkn/config.yaml`、`--config`、コマンドオプションの順に上書きします。
 `config list` の `values.*` と `value_sources.*` で有効値と決定元を確認できます。
-接続先・モデル・認証は Bridge の共有設定で管理し、アプリ設定からプロファイル名で参照します。
+接続先・モデルは同じ設定ファイルの `genai_profiles` で管理し、各生成プロファイルから名前で参照します。Bridge の設定ファイルは読みません。
 
 設定キーの一覧、既定値、パスの扱い、生成プロファイル、カスタム生成指示は [設定と生成プロファイル](docs/reference/configuration.md) を参照してください。
 

@@ -60,7 +60,9 @@ class MeetingBackend:
 @pytest.fixture
 def backend(monkeypatch: pytest.MonkeyPatch) -> MeetingBackend:
     backend = MeetingBackend()
-    monkeypatch.setattr(bridge_module, "Runtime", lambda p: Runtime(p, backend=backend))
+    monkeypatch.setattr(
+        bridge_module, "Runtime", lambda p, **kwargs: Runtime(p, backend=backend, **kwargs)
+    )
     return backend
 
 

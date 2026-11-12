@@ -98,10 +98,10 @@ def _common(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--profile", help="application profile in the current mode's generation group"
     )
-    parser.add_argument("--bridge-profile", help="shared Bridge profile for this run")
-    parser.add_argument("--model", help="Bridge model override for this run")
+    parser.add_argument("--genai-profile", help="genai_profiles connection for this run")
+    parser.add_argument("--model", help="model override for this run")
     parser.add_argument(
-        "--provider-timeout-seconds", type=float, help="Bridge timeout for this run"
+        "--provider-timeout-seconds", type=float, help="provider timeout for this run"
     )
     parser.add_argument("--max-input-bytes", type=int)
     parser.add_argument("--max-total-input-bytes", type=int)
@@ -277,7 +277,7 @@ def _resolved(args: argparse.Namespace) -> Any:
             "output_root",
             "reports_root",
             "profile",
-            "bridge_profile",
+            "genai_profile",
             "provider_timeout_seconds",
             "model",
             "max_input_bytes",

@@ -116,7 +116,8 @@ def _source_set_with_title(
 
 def provider_for_config(config: AppConfig) -> SummaryProvider:
     return BridgeProvider(
-        bridge_profile=config.generation.summary.selected.bridge_profile,
+        genai_profile=config.generation.summary.selected.genai_profile,
+        genai_profiles=config.genai_profiles,
         overrides=config.generation.summary.selected.overrides,
         summary_profile=config.summary_profile,
         summary_prompt=config.summary_prompt,
@@ -127,7 +128,8 @@ def comparison_provider_for_config(
     config: AppConfig, *, comparison_profile: str | None = None
 ) -> ComparisonProvider:
     return BridgeComparisonProvider(
-        bridge_profile=config.generation.comparison.selected.bridge_profile,
+        genai_profile=config.generation.comparison.selected.genai_profile,
+        genai_profiles=config.genai_profiles,
         overrides=config.generation.comparison.selected.overrides,
         comparison_profile=(
             comparison_profile

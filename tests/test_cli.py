@@ -554,7 +554,7 @@ def test_generation_group_routes_connection_and_format_together(
         kind: {
             "default_profile": "work",
             "profiles": {"work": {
-                "bridge_profile": "codex-default",
+                "genai_profile": "codex-default",
                 f"{kind}_profile": "default-en" if kind == "summary" else "claims-ja",
                 "overrides": {"model": f"{kind}-model", "timeout_seconds": 71},
             }},
@@ -583,7 +583,7 @@ def test_config_list_overrides_comparison_without_changing_summary(
     config.write_text(
         "generation:\n  summary:\n    profiles:\n      default:\n"
         "        summary_profile: conversation-ja\n  comparison:\n    profiles:\n"
-        "      work:\n        bridge_profile: codex-default\n"
+        "      work:\n        genai_profile: codex-default\n"
         "        comparison_profile: claims-ja\n",
         encoding="utf-8",
     )
@@ -631,57 +631,61 @@ def test_removed_legacy_cli_options_are_rejected(
     assert "unrecognized arguments" in capsys.readouterr().err
 
 
-@pytest.mark.parametrize("selection", ["omitted", "null", "explicit"])
 @pytest.mark.parametrize("mode,count", [("series", 1), ("series", 2), ("compare", 2)])
-def test_bridge_default_changes_are_followed_unless_pinned(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
-    selection: str, mode: str, count: int,
+def test_app_genai_profiles_select_connection_without_bridge_config(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], mode: str, count: int,
 ) -> None:
-    import tkn_genai_bridge.config as bridge_config
     import yaml
 
-    bridge_path = tmp_path / "bridge.yaml"
-    monkeypatch.setattr(bridge_config, "user_config_path", lambda: bridge_path)
     app_path = tmp_path / "config.yaml"
-    profile = {} if selection == "omitted" else {
-        "bridge_profile": None if selection == "null" else "pinned",
-    }
-    app_path.write_text(yaml.safe_dump({"generation": {
-        kind: {"profiles": {"default": profile}} for kind in ("summary", "comparison")
-    }}), encoding="utf-8")
+    app_path.write_text(yaml.safe_dump({
+        "schema_version": "3.0.0",
+        "genai_profiles": {
+            "first": {"provider": "github-copilot"},
+            "second": {"provider": "claude-code", "model": "second-model"},
+        },
+        "generation": {
+            kind: {"profiles": {"default": {"genai_profile": "first"}}}
+            for kind in ("summary", "comparison")
+        },
+    }), encoding="utf-8")
     sources = [tmp_path / f"part-{index}.md" for index in range(count)]
     for source in sources:
         source.write_text("# Part\n\nContent.", encoding="utf-8")
     args = [
         "summarize", *map(str, sources), "--mode", mode, "--config", str(app_path),
         "--output-root", str(tmp_path / "out"), "--reports-root", str(tmp_path / "reports"),
-        "--dry-run",
+        "--dry-run", "--json",
     ]
-    for default, provider in (("first", "github-copilot"), ("second", "claude-code")):
-        bridge_path.write_text(yaml.safe_dump({
-            "schema_version": "1.1.0", "default_profile": default,
-            "profiles": {
-                "first": {"provider": "github-copilot"},
-                "second": {"provider": "claude-code"},
-                "pinned": {"provider": "codex"},
-            },
-        }), encoding="utf-8")
-        assert main(args) == 0
+    for extra, name, provider in (
+        ([], "first", "github-copilot"),
+        (["--genai-profile", "second"], "second", "claude-code"),
+        (["--genai-profile", "codex-default"], "codex-default", "codex"),
+    ):
+        assert main([*args, *extra]) == 0
         plan = json.loads(capsys.readouterr().out)["details"]["bridge_plan"]
-        assert plan["profile_name"] == ("pinned" if selection == "explicit" else default)
-        assert plan["provider"] == ("codex" if selection == "explicit" else provider)
+        assert plan["profile_name"] == name
+        assert plan["provider"] == provider
         assert plan["will_call_provider"] is False
-    assert main([*args, "--bridge-profile", "pinned"]) == 0
-    assert (
-        json.loads(capsys.readouterr().out)["details"]["bridge_plan"]["profile_name"] == "pinned"
-    )
+    assert main([*args, "--genai-profile", "shared-only"]) != 0
+    captured = capsys.readouterr()
+    assert json.loads(captured.out)["status"] == "failed"
+    assert "not defined in genai_profiles: shared-only" in captured.err
     assert main(["config", "list", "--config", str(app_path), "--json"]) == 0
     listing = json.loads(capsys.readouterr().out)
+    assert listing["values"]["genai_profiles"]["second"]["model"] == "second-model"
+    assert listing["value_sources"]["genai_profiles.first.provider"] == str(app_path)
     for kind in ("summary", "comparison"):
-        assert listing["values"]["generation"][kind]["profiles"]["default"]["bridge_profile"] == (
-            "pinned" if selection == "explicit" else None
+        assert listing["values"]["generation"][kind]["profiles"]["default"]["genai_profile"] == (
+            "first"
         )
-        assert listing["generationResolved"][kind]["profile_name"] == (
-            "pinned" if selection == "explicit" else "second"
-        )
+        assert listing["generationResolved"][kind]["profile_name"] == "first"
+        assert listing["generationResolved"][kind]["provider"] == "github-copilot"
     assert not (tmp_path / "out").exists() and not (tmp_path / "reports").exists()
+
+
+def test_removed_bridge_profile_option_is_rejected(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as error:
+        build_parser().parse_args(["summarize", "one.md", "--bridge-profile", "codex-default"])
+    assert error.value.code == 2
+    assert "unrecognized arguments" in capsys.readouterr().err

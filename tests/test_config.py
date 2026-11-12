@@ -233,7 +233,7 @@ def test_nested_profiles_merge_and_cli_targets_selected_profile(
     global_config = tmp_path / "global.yaml"
     global_config.write_text(
         "generation:\n  summary:\n    profiles:\n"
-        "      work:\n        bridge_profile: shared-work\n        summary_profile: default-en\n"
+        "      work:\n        genai_profile: work-connection\n        summary_profile: default-en\n"
         "        overrides:\n          model: base\n          timeout_seconds: 120\n",
         encoding="utf-8",
     )
@@ -250,14 +250,14 @@ def test_nested_profiles_merge_and_cli_targets_selected_profile(
         overrides={"profile": "work", "model": "cli", "summary_profile": "default-ja"},
     )
     selected = resolved.config.generation.summary.selected
-    assert selected.bridge_profile == "shared-work"
+    assert selected.genai_profile == "work-connection"
     assert selected.overrides == {"model": "cli", "timeout_seconds": 120}
     assert resolved.config.summary_profile == "default-ja"
     assert resolved.config.generation.summary.profiles["default"].overrides == {}
     assert resolved.config.generation.comparison.selected.overrides == {}
     assert resolved.sources.count("CLI options") == 1
     prefix = "generation.summary.profiles.work"
-    assert resolved.value_sources[f"{prefix}.bridge_profile"] == str(global_config)
+    assert resolved.value_sources[f"{prefix}.genai_profile"] == str(global_config)
     assert resolved.value_sources[f"{prefix}.overrides.timeout_seconds"] == str(global_config)
     assert resolved.value_sources[f"{prefix}.overrides.model"] == "CLI options"
 
@@ -290,8 +290,19 @@ def test_null_model_overrides_lower_layer(
         ("schema_version: '9.0.0'\n", "schema_version"),
         (
             "generation:\n  summary:\n    profiles:\n      default:\n"
-            "        bridge_profile: ' '", "blank",
+            "        genai_profile: ' '", "blank",
         ),
+        (
+            "generation:\n  summary:\n    profiles:\n      default:\n"
+            "        genai_profile: null", "genai_profile",
+        ),
+        ("genai_profiles:\n  custom:\n    provider: missing\n", "genai_profiles.custom"),
+        ("genai_profiles:\n  custom:\n    unknown: private\n", "extra"),
+        ("genai_profiles:\n  custom:\n    timeout_seconds: '60'\n", "genai_profiles.custom"),
+        ("genai_profiles:\n  custom:\n    cli:\n      unknown: true\n", "extra"),
+        ("genai_profiles:\n  custom:\n    provider: ollama\n", "genai_profiles.custom"),
+        ("genai_profiles:\n  ' ':\n    provider: codex\n", "blank"),
+        ("genai_profiles: []\n", "genai_profiles"),
         ("generation:\n  summary:\n    default_profile: missing\n", "default_profile"),
         ("generation:\n  comparison:\n    default_profile: missing\n", "default_profile"),
         ("generation:\n  summary:\n    profiles: null\n", "profiles"),
@@ -323,8 +334,11 @@ def test_invalid_generation_config_is_rejected(tmp_path: Path, text: str, match:
     "text",
     [
         "schema_version: '1.0.0'\n",
+        "schema_version: '2.0.0'\n",
         "generation:\n  summary_profile: default-ja\n",
         "generation:\n  profiles:\n    codex:\n      bridge_profile: codex-default\n",
+        "schema_version: '3.0.0'\ngeneration:\n  summary:\n    profiles:\n"
+        "      default:\n        bridge_profile: codex-default\n",
         *[f"{key}: codex\n" for key in (
             "model", "provider", "codex_executable", "codex_timeout_seconds",
             "summary_profile", "bridge_profile", "provider_timeout_seconds",
@@ -346,19 +360,19 @@ def test_cli_overrides_only_selected_mode(tmp_path: Path, kind: str) -> None:
             group: {
                 "default_profile": "work",
                 "profiles": {"work": {
-                    "bridge_profile": f"{group}-bridge",
+                    "genai_profile": f"{group}-connection",
                     f"{group}_profile": (
                         "conversation-ja" if group == "summary" else "claims-ja"
                     ),
                     "overrides": {"model": group, "timeout_seconds": 60},
-                }, "alternate": {"bridge_profile": "alternate"}},
+                }, "alternate": {"genai_profile": "alternate"}},
             } for group in ("summary", "comparison")
         },
     }), encoding="utf-8")
     resolved = resolve_config(
         cwd=tmp_path, explicit_config=explicit, kind=kind,
         overrides={
-            "profile": "alternate", "bridge_profile": "cli-bridge",
+            "profile": "alternate", "genai_profile": "cli-connection",
             "model": "cli-model", "provider_timeout_seconds": 120,
             f"{kind}_profile": "default-en" if kind == "summary" else "compare-en",
         },
@@ -368,14 +382,14 @@ def test_cli_overrides_only_selected_mode(tmp_path: Path, kind: str) -> None:
         resolved.config.generation, "comparison" if kind == "summary" else "summary",
     )
     assert section.default_profile == "alternate"
-    assert section.selected.bridge_profile == "cli-bridge"
+    assert section.selected.genai_profile == "cli-connection"
     assert section.selected.overrides == {"model": "cli-model", "timeout_seconds": 120}
     assert getattr(section.selected, f"{kind}_profile").endswith("-en")
     assert other.default_profile == "work"
-    assert other.selected.bridge_profile.endswith("-bridge")
+    assert other.selected.genai_profile.endswith("-connection")
     assert other.selected.overrides["timeout_seconds"] == 60
     prefix = f"generation.{kind}.profiles.alternate"
-    assert resolved.value_sources[f"{prefix}.bridge_profile"] == "CLI options"
+    assert resolved.value_sources[f"{prefix}.genai_profile"] == "CLI options"
 
 
 @pytest.mark.parametrize(
@@ -394,28 +408,49 @@ def test_mode_overrides_reject_invalid_selection(
         resolve_config(cwd=tmp_path, kind=kind, overrides=overrides)
 
 
-def test_bridge_profile_defaults_to_shared_selection(tmp_path: Path) -> None:
-    config = resolve_config(cwd=tmp_path).config
-    assert config.generation.summary.selected.bridge_profile is None
-    assert config.generation.comparison.selected.bridge_profile is None
+def test_genai_profile_defaults_to_builtin_connection(tmp_path: Path) -> None:
+    resolved = resolve_config(cwd=tmp_path)
+    config = resolved.config
+    assert config.generation.summary.selected.genai_profile == "codex-default"
+    assert config.generation.comparison.selected.genai_profile == "codex-default"
+    assert {name: profile.provider for name, profile in config.genai_profiles.items()} == {
+        "codex-default": "codex",
+        "claude-default": "claude-code",
+        "copilot-default": "github-copilot",
+        "antigravity-default": "antigravity",
+    }
+    assert resolved.value_sources["genai_profiles.codex-default.provider"] == "built-in defaults"
 
 
-@pytest.mark.parametrize("kind", ["summary", "comparison"])
-def test_null_bridge_profile_clears_lower_explicit_selection(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kind: str,
+def test_genai_profiles_merge_by_name_and_field(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    global_config = tmp_path / "global.yaml"
-    global_config.write_text(yaml.safe_dump({"generation": {
-        kind: {"profiles": {"default": {"bridge_profile": "pinned"}}},
+    user_dir = tmp_path / "user"
+    user_dir.mkdir()
+    global_config = user_dir / "config.yaml"
+    global_config.write_text(yaml.safe_dump({"genai_profiles": {
+        "custom": {
+            "provider": "claude-code", "model": "base",
+            "cli": {"executable": "./tools/claude.exe"},
+        },
+        "named": {"provider": "github-copilot", "cli": {"executable": "copilot"}},
     }}), encoding="utf-8")
     monkeypatch.setattr(config_module, "global_config_path", lambda: global_config)
-    explicit = tmp_path / "config.yaml"
-    explicit.write_text(yaml.safe_dump({"generation": {
-        kind: {"profiles": {"default": {"bridge_profile": None}}},
-    }}), encoding="utf-8")
+    explicit = tmp_path / "other" / "config.yaml"
+    explicit.parent.mkdir()
+    explicit.write_text(yaml.safe_dump({
+        "schema_version": "3.0.0",
+        "genai_profiles": {"custom": {"model": "override"}},
+        "generation": {"summary": {"profiles": {"default": {"genai_profile": "custom"}}}},
+    }), encoding="utf-8")
     resolved = resolve_config(cwd=tmp_path, explicit_config=explicit)
-    assert getattr(resolved.config.generation, kind).selected.bridge_profile is None
-    assert (
-        resolved.value_sources[f"generation.{kind}.profiles.default.bridge_profile"]
-        == str(explicit)
-    )
+    profiles = resolved.config.genai_profiles
+    assert profiles["custom"].provider == "claude-code"
+    assert profiles["custom"].model == "override"
+    assert profiles["custom"].cli is not None
+    assert profiles["custom"].cli.executable == str((user_dir / "tools/claude.exe").resolve())
+    assert profiles["named"].cli is not None and profiles["named"].cli.executable == "copilot"
+    assert "codex-default" in profiles
+    assert resolved.value_sources["genai_profiles.custom.model"] == str(explicit)
+    assert resolved.value_sources["genai_profiles.custom.cli.executable"] == str(global_config)
+    assert resolved.config.generation.summary.selected.genai_profile == "custom"

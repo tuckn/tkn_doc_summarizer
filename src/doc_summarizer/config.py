@@ -7,14 +7,17 @@ from dataclasses import dataclass
 from datetime import datetime
 from importlib.resources import files
 from pathlib import Path
-from typing import Any, Generic, Literal, Self, TypeVar
+from typing import Any, Final, Generic, Literal, Self, TypeVar
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from tkn_genai_bridge import Profile
 
 from doc_summarizer.io import atomic_write
 
 APP_ID = "doc_summarizer"
+SCHEMA_VERSION: Final = "3.0.0"
+DEFAULT_GENAI_PROFILE = "codex-default"
 DEFAULT_SUMMARY_PROFILE = "default-ja"
 BUILT_IN_SUMMARY_PROFILES = (
     "default-ja", "default-en", "conversation-ja", "meeting-minutes-ja",
@@ -22,6 +25,16 @@ BUILT_IN_SUMMARY_PROFILES = (
 BUILT_IN_COMPARISON_PROFILES = ("compare-ja", "compare-en", "claims-ja")
 SourcePathFormat = Literal["native", "file-uri"]
 GenerationKind = Literal["summary", "comparison"]
+
+
+def default_genai_profiles() -> dict[str, Profile]:
+    """Built-in connections; CLI providers reuse their existing login."""
+    return {
+        "codex-default": Profile(provider="codex"),
+        "claude-default": Profile(provider="claude-code"),
+        "copilot-default": Profile(provider="github-copilot"),
+        "antigravity-default": Profile(provider="antigravity"),
+    }
 
 
 def _merge(base: dict[str, Any], layer: dict[str, Any]) -> dict[str, Any]:
@@ -62,14 +75,14 @@ def _selected_values(
 class GenerationProfile(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    bridge_profile: str | None = Field(default=None, min_length=1)
+    genai_profile: str = Field(default=DEFAULT_GENAI_PROFILE, min_length=1)
     overrides: dict[str, Any] = Field(default_factory=dict)
 
-    @field_validator("bridge_profile")
+    @field_validator("genai_profile")
     @classmethod
-    def validate_bridge_profile(cls, value: str | None) -> str | None:
-        if value is not None and not value.strip():
-            raise ValueError("bridge_profile must not be blank")
+    def validate_genai_profile(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("genai_profile must not be blank")
         return value
 
 
@@ -146,12 +159,20 @@ class AppConfig(BaseModel):
     source_roots: list[Path] = Field(default_factory=list)
     output_root: Path
     reports_root: Path
-    schema_version: Literal["2.0.0"] = "2.0.0"
+    schema_version: Literal["3.0.0"] = SCHEMA_VERSION
+    genai_profiles: dict[str, Profile] = Field(default_factory=default_genai_profiles)
     generation: GenerationConfig = Field(default_factory=GenerationConfig)
     max_input_bytes: int = Field(default=2_000_000, ge=1)
     max_total_input_bytes: int = Field(default=8_000_000, ge=1)
     source_path_format: SourcePathFormat = "native"
     summary_prompt: Path | None = None
+
+    @field_validator("genai_profiles")
+    @classmethod
+    def validate_genai_profile_names(cls, value: dict[str, Profile]) -> dict[str, Profile]:
+        if any(not name.strip() for name in value):
+            raise ValueError("genai_profiles names must not be blank")
+        return value
 
     @property
     def summary_profile(self) -> str:
@@ -223,7 +244,10 @@ def default_values() -> dict[str, Any]:
         "source_roots": [],
         "output_root": user_root() / "data" / "summaries",
         "reports_root": user_root() / "state" / "reports",
-        "schema_version": "2.0.0",
+        "schema_version": SCHEMA_VERSION,
+        "genai_profiles": {
+            name: profile.model_dump() for name, profile in default_genai_profiles().items()
+        },
         "generation": GenerationConfig().model_dump(),
         "max_input_bytes": 2_000_000,
         "max_total_input_bytes": 8_000_000,
@@ -242,6 +266,32 @@ def _load_yaml(path: Path) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ValueError(f"config must be a mapping: {path}")
     return dict(value)
+
+
+def _check_layer_version(layer: dict[str, Any], source: Path) -> None:
+    version = layer.get("schema_version", SCHEMA_VERSION)
+    if version != SCHEMA_VERSION:
+        raise ValueError(
+            f"invalid configuration: {source}: unsupported schema_version {version!r}; "
+            f'use "{SCHEMA_VERSION}". To migrate 2.0.0, define connections in genai_profiles '
+            "and rename each generation profile's bridge_profile to genai_profile"
+        )
+
+
+def _resolve_genai_paths(layer: dict[str, Any], base_dir: Path) -> None:
+    """Resolve executable paths from the file that wrote them; bare names use PATH."""
+    profiles = layer.get("genai_profiles")
+    if not isinstance(profiles, dict):
+        return
+    for spec in profiles.values():
+        cli = spec.get("cli") if isinstance(spec, dict) else None
+        if not isinstance(cli, dict):
+            continue
+        executable = cli.get("executable")
+        if isinstance(executable, str) and (
+            "/" in executable or "\\" in executable or executable.startswith("~")
+        ):
+            cli["executable"] = str((base_dir / Path(executable).expanduser()).resolve())
 
 
 def _resolve_path(value: object, cwd: Path) -> Path:
@@ -301,7 +351,10 @@ def resolve_config(
 
     for path in candidates:
         if path.is_file():
-            merge_layer(_load_yaml(path), str(path))
+            layer = _load_yaml(path)
+            _check_layer_version(layer, path)
+            _resolve_genai_paths(layer, path.parent)
+            merge_layer(layer, str(path))
     effective_overrides = {
         key: value for key, value in (overrides or {}).items() if value is not None
     }
@@ -313,7 +366,7 @@ def resolve_config(
             )
         active, _ = _selected_values(values, kind)
         connection: dict[str, Any] = {}
-        for key in ("bridge_profile", "summary_profile", "comparison_profile"):
+        for key in ("genai_profile", "summary_profile", "comparison_profile"):
             if key in effective_overrides:
                 if key == "summary_profile" and kind != "summary":
                     raise ValueError("--summary-profile requires --mode series")
