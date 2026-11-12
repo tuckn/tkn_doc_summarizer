@@ -688,4 +688,4 @@ def test_removed_bridge_profile_option_is_rejected(capsys: pytest.CaptureFixture
     with pytest.raises(SystemExit) as error:
         build_parser().parse_args(["summarize", "one.md", "--bridge-profile", "codex-default"])
     assert error.value.code == 2
-    assert "unrecognized arguments" in capsys.readouterr().err
+    assert "--bridge-profile was replaced by --genai-profile" in capsys.readouterr().err

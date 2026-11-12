@@ -53,6 +53,28 @@ class Parser(argparse.ArgumentParser):
         raise ArgumentFailure(message)
 
 
+class Replaced(argparse.Action):
+    """Hidden removed option that fails with the option that replaced it."""
+
+    def __init__(self, option_strings: list[str], dest: str, replacement: str) -> None:
+        self.replacement = replacement
+        super().__init__(
+            option_strings, dest, nargs="?", default=argparse.SUPPRESS, help=argparse.SUPPRESS
+        )
+
+    def __call__(
+        self,
+        parser: argparse.ArgumentParser,
+        namespace: argparse.Namespace,
+        values: Any,
+        option_string: str | None = None,
+    ) -> NoReturn:
+        parser.error(
+            f"{option_string} was replaced by {self.replacement}; "
+            "define connections in genai_profiles"
+        )
+
+
 def _configure_console_encoding() -> None:
     for stream in (sys.stdout, sys.stderr):
         reconfigure = getattr(stream, "reconfigure", None)
@@ -99,6 +121,7 @@ def _common(parser: argparse.ArgumentParser) -> None:
         "--profile", help="application profile in the current mode's generation group"
     )
     parser.add_argument("--genai-profile", help="genai_profiles connection for this run")
+    parser.add_argument("--bridge-profile", action=Replaced, replacement="--genai-profile")
     parser.add_argument("--model", help="model override for this run")
     parser.add_argument(
         "--provider-timeout-seconds", type=float, help="provider timeout for this run"

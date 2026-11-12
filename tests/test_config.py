@@ -352,6 +352,52 @@ def test_legacy_settings_are_rejected(tmp_path: Path, text: str) -> None:
         resolve_config(cwd=tmp_path, explicit_config=explicit)
 
 
+@pytest.mark.parametrize("version", ["schema_version: '3.0.0'\n", ""])
+@pytest.mark.parametrize("kind", ["summary", "comparison"])
+def test_bridge_profile_names_its_replacement(tmp_path: Path, version: str, kind: str) -> None:
+    explicit = tmp_path / "renamed.yaml"
+    explicit.write_text(
+        f"{version}generation:\n  {kind}:\n    profiles:\n      default:\n"
+        "        bridge_profile: codex-high\n",
+        encoding="utf-8",
+    )
+    renamed = rf"generation\.{kind}\.profiles\.default\.bridge_profile was renamed to genai_profile"
+    with pytest.raises(ValueError, match=renamed):
+        resolve_config(cwd=tmp_path, explicit_config=explicit)
+
+
+def test_validation_errors_do_not_echo_input_values(tmp_path: Path) -> None:
+    explicit = tmp_path / "secret.yaml"
+    explicit.write_text(
+        "genai_profiles:\n  azure:\n    provider: azure-openai\n"
+        "    azure:\n      api_key: PRIVATE-SECRET-VALUE\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError) as error:
+        resolve_config(cwd=tmp_path, explicit_config=explicit)
+    message = str(error.value)
+    assert "genai_profiles.azure.azure.api_key" in message
+    assert "PRIVATE-SECRET-VALUE" not in message
+    assert error.value.__cause__ is None and error.value.__suppress_context__
+
+
+def test_generation_override_executable_resolves_from_its_file(tmp_path: Path) -> None:
+    explicit = tmp_path / "other" / "config.yaml"
+    explicit.parent.mkdir()
+    explicit.write_text(yaml.safe_dump({"generation": {
+        "summary": {"profiles": {"default": {
+            "overrides": {"cli": {"executable": "./bin/codex.exe"}},
+        }}},
+        "comparison": {"profiles": {"default": {
+            "overrides": {"cli": {"executable": "codex"}},
+        }}},
+    }}), encoding="utf-8")
+    generation = resolve_config(cwd=tmp_path, explicit_config=explicit).config.generation
+    summary_cli = generation.summary.selected.overrides["cli"]
+    assert summary_cli["executable"] == str((explicit.parent / "bin/codex.exe").resolve())
+    assert generation.comparison.selected.overrides["cli"]["executable"] == "codex"
+
+
 @pytest.mark.parametrize("kind", ["summary", "comparison"])
 def test_cli_overrides_only_selected_mode(tmp_path: Path, kind: str) -> None:
     explicit = tmp_path / "config.yaml"

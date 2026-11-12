@@ -10,7 +10,14 @@ from pathlib import Path
 from typing import Any, Final, Generic, Literal, Self, TypeVar
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 from tkn_genai_bridge import Profile
 
 from doc_summarizer.io import atomic_write
@@ -278,20 +285,63 @@ def _check_layer_version(layer: dict[str, Any], source: Path) -> None:
         )
 
 
+def _generation_profiles(layer: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
+    """Generation profile mappings of one layer, as (location, spec) pairs."""
+    generation = layer.get("generation")
+    found: list[tuple[str, dict[str, Any]]] = []
+    if not isinstance(generation, dict):
+        return found
+    for kind in ("summary", "comparison"):
+        section = generation.get(kind)
+        profiles = section.get("profiles") if isinstance(section, dict) else None
+        if isinstance(profiles, dict):
+            found.extend(
+                (f"generation.{kind}.profiles.{name}", spec)
+                for name, spec in profiles.items()
+                if isinstance(spec, dict)
+            )
+    return found
+
+
+def _check_renamed_keys(layer: dict[str, Any], source: Path) -> None:
+    """Name the replacement for 2.0.0 keys, even when schema_version was already raised."""
+    for location, spec in _generation_profiles(layer):
+        if "bridge_profile" in spec:
+            raise ValueError(
+                f"invalid configuration: {source}: {location}.bridge_profile was renamed to "
+                f"genai_profile in schema {SCHEMA_VERSION}; define the connection in genai_profiles"
+            )
+
+
+def _resolve_executable(spec: Any, base_dir: Path) -> None:
+    cli = spec.get("cli") if isinstance(spec, dict) else None
+    if not isinstance(cli, dict):
+        return
+    executable = cli.get("executable")
+    if isinstance(executable, str) and (
+        "/" in executable or "\\" in executable or executable.startswith("~")
+    ):
+        cli["executable"] = str((base_dir / Path(executable).expanduser()).resolve())
+
+
 def _resolve_genai_paths(layer: dict[str, Any], base_dir: Path) -> None:
     """Resolve executable paths from the file that wrote them; bare names use PATH."""
     profiles = layer.get("genai_profiles")
-    if not isinstance(profiles, dict):
-        return
-    for spec in profiles.values():
-        cli = spec.get("cli") if isinstance(spec, dict) else None
-        if not isinstance(cli, dict):
-            continue
-        executable = cli.get("executable")
-        if isinstance(executable, str) and (
-            "/" in executable or "\\" in executable or executable.startswith("~")
-        ):
-            cli["executable"] = str((base_dir / Path(executable).expanduser()).resolve())
+    if isinstance(profiles, dict):
+        for spec in profiles.values():
+            _resolve_executable(spec, base_dir)
+    # Generation overrides merge into the connection, so their paths follow the same rule.
+    for _, spec in _generation_profiles(layer):
+        _resolve_executable(spec.get("overrides"), base_dir)
+
+
+def _validation_message(exc: ValidationError) -> str:
+    """Field locations and reasons only: input values may hold secrets."""
+    return "; ".join(
+        f"{'.'.join(str(part) for part in error['loc']) or 'config'}: "
+        f"{error['msg']} [type={error['type']}]"
+        for error in exc.errors(include_input=False, include_url=False)
+    )
 
 
 def _resolve_path(value: object, cwd: Path) -> Path:
@@ -353,6 +403,7 @@ def resolve_config(
         if path.is_file():
             layer = _load_yaml(path)
             _check_layer_version(layer, path)
+            _check_renamed_keys(layer, path)
             _resolve_genai_paths(layer, path.parent)
             merge_layer(layer, str(path))
     effective_overrides = {
@@ -387,6 +438,9 @@ def resolve_config(
         merge_layer(effective_overrides, "CLI options")
     try:
         config = AppConfig.model_validate(_resolve_paths(values, current))
+    except ValidationError as exc:
+        # Drop the cause too, so verbose tracebacks cannot show the input values.
+        raise ValueError(f"invalid configuration: {_validation_message(exc)}") from None
     except Exception as exc:
         raise ValueError(f"invalid configuration: {exc}") from exc
     return ResolvedConfig(

@@ -106,8 +106,8 @@ genai_profiles:
 
 接続先は名前・項目単位で設定の層をまたいでマージします。たとえばユーザー設定で `codex-default` の `model` だけを指定すると、`provider` などは組み込み値を保ちます。新しい名前を追加して、Ollama や Azure OpenAI の接続先も定義できます。
 各接続先の項目は、固定依存版 Bridge の `Profile` に従います（`provider`、`model`、`reasoning_effort`、`timeout_seconds`、`max_output_tokens`、`local_only`、`cli`、`ollama`、`azure`、`pricing`）。未知の項目や不正な型・値はエラーです。値の意味は [Bridge の設定仕様](https://github.com/tuckn/tkn_genai_bridge/blob/27ac8e48c8038ee86e029f5b845cd41f6da121af/docs/reference/configuration.md) を参照してください。
-`cli.executable` の相対パスは、その値を書いた設定ファイルのフォルダを基準に解決します。`codex` のような区切り文字を含まないコマンド名は PATH から探します。
-秘密値は書かず、認証済み CLI や `azure.api_key_env` などの環境変数名を指定します。
+`cli.executable` の相対パスは、生成プロファイルの `overrides` に書いた場合も含め、その値を書いた設定ファイルのフォルダを基準に解決します。`codex` のような区切り文字を含まないコマンド名は PATH から探します。
+秘密値は書かず、認証済み CLI や `azure.api_key_env` などの環境変数名を指定します。設定の検証エラーには項目の場所と理由だけを表示し、入力値は表示しません。
 
 `genai_profile` の既定値は `codex-default` です。空文字や空白だけの指定、`null` はエラーです。`genai_profiles` にない名前は生成の準備時（dry-run や `config list` を含む）にエラーとなり、別の接続先へ切り替えません。`--genai-profile NAME` はその実行だけ接続先を変更します。
 

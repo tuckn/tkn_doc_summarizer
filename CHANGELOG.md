@@ -4,7 +4,7 @@
 
 - tkn-genai-bridge を 0.10.0（e0dfc75）から 27ac8e4（0.11.0）に更新しました。Claude Code で生成するたびに `~/.claude/projects` へ空のフォルダが増えないようにし、強制終了で残った一時フォルダを次の実行の最初の生成で消すようにしました。以前の版の Bridge が残したフォルダは消しません。
 - 生成 AI の接続先を本 CLI の設定ファイルのトップレベル `genai_profiles` で管理するように変更しました（設定の非互換変更）。Bridge の共有設定 `~/.tkn/genai_bridge/config.yaml` は読み込まず、検証した接続設定を Bridge の `Runtime` へ直接渡すため、本 CLI のインストールだけで動作します。
-- 組み込みの接続先 `codex-default`・`claude-default`・`copilot-default`・`antigravity-default` を追加しました。接続先は設定の層をまたいで名前・項目単位でマージし、`config list` で値と決定元を確認できます。`cli.executable` の相対パスはその値を書いた設定ファイルのフォルダを基準に解決します。
+- 組み込みの接続先 `codex-default`・`claude-default`・`copilot-default`・`antigravity-default` を追加しました。接続先は設定の層をまたいで名前・項目単位でマージし、`config list` で値と決定元を確認できます。`cli.executable` の相対パスは、生成プロファイルの `overrides` に書いた場合も含め、その値を書いた設定ファイルのフォルダを基準に解決します。設定の検証エラーには項目の場所と理由だけを表示し、誤って書いた秘密値などの入力値は表示しません。
 - 設定形式を `schema_version: "3.0.0"` に更新しました。各プロファイルの `bridge_profile` は `genai_profile`（既定値 `codex-default`）、CLI の `--bridge-profile` は `--genai-profile` に変わります。`2.0.0` の設定と旧キー・旧オプションは移行方法を示してエラーにします。未定義の接続先は生成の準備時にエラーとなり、Bridge の設定へフォールバックしません。
 - 要約ノート・実行レポートの形式、既存ノートの再利用判定は変更しません。インストール済み CLI への反映は `uv tool install . --reinstall` です。
 
